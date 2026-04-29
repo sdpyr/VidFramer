@@ -1,0 +1,6 @@
+{
+  "name": "Glitchframer",
+  "description": "A stylized music visualizer and lyric video generator with automatic lyrics detection and glitch aesthetics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
