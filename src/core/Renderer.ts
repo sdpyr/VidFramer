@@ -55,7 +55,7 @@ export class GlitchRenderer {
     this.renderMetadata(context);
 
     // 4. Draw Synced Lyrics (Karaoke Effect)
-    if (settings.showLyrics && settings.syncedLyrics.length > 0) {
+    if (settings.showLyrics && settings.syncedLyrics && settings.syncedLyrics.length > 0 && settings.mode !== 'KINETIC_TYPO') {
       this.renderLyrics(context);
     }
 
