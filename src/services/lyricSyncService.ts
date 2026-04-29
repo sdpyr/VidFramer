@@ -6,24 +6,32 @@ const apiKey = process.env.GEMINI_API_KEY;
 
 export async function generateSyncedLyrics(audioBase64: string, mimeType: string): Promise<SyncedLine[]> {
   try {
-    const response = await fetch("/api/sync-lyrics", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        audioData: audioBase64,
-        mimeType: mimeType,
-        prompt: `Listen to this audio and perform exact word-by-word lyric transcription. 
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: [
+        {
+          inlineData: {
+            data: audioBase64,
+            mimeType: mimeType,
+          },
+        },
+        {
+          text: `Listen to this audio and perform exact word-by-word lyric transcription. 
         1. Identify the language correctly.
         2. Provide word-level timestamps for every single word.
         3. Do NOT summarize or guess.
         4. Return a JSON array of sentences.
         5. Each sentence must have startTime, endTime, text, and a detailed 'words' array.
         6. Timing must be perfect.`
-      })
+        }
+      ],
+      config: {
+        responseMimeType: "application/json"
+      }
     });
 
-    const result = await response.json();
-    let text = result.response || "";
+    let text = response.text || "";
     
     // Robust Parsing: Remove markdown code blocks if present
     text = text.replace(/```json\n?/, "").replace(/```\n?/, "").trim();

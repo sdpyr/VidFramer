@@ -61,6 +61,20 @@ export class GlitchRenderer {
 
     // 5. Draw Post-Process Effects (Scanlines, Vignette)
     this.applyPostEffects(context);
+
+    // 6. Draw Branding
+    this.drawBranding(ctx, width, height);
+  }
+
+  private drawBranding(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    ctx.save();
+    ctx.font = '700 24px "JetBrains Mono"';
+    ctx.fillStyle = 'rgba(228, 227, 224, 0.3)'; // Yarı saydam antrasit/gri
+    ctx.textAlign = 'center';
+    ctx.letterSpacing = '10px';
+    // Ekranın en altına, ortalayarak markayı/imzayı bas
+    ctx.fillText("VIDFRAMER ENGINE", width / 2, height - 50);
+    ctx.restore();
   }
 
   private renderMetadata({ ctx, width, height, settings, metadata }: RenderContext) {

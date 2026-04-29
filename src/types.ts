@@ -10,9 +10,10 @@ export interface MusicMetadata {
   year?: number;
   genre?: string[];
   coverUrl?: string;
+  lyrics?: string;
 }
 
-export type VisualizerMode = 'GLITCH' | 'WAVEFORM' | 'SPECTRUM' | 'RADIAL' | 'PARTICLES' | 'TUNNEL' | 'NEBULA' | 'SIMULATION';
+export type VisualizerMode = 'GLITCH' | 'WAVEFORM' | 'SPECTRUM' | 'RADIAL' | 'PARTICLES' | 'TUNNEL' | 'NEBULA' | 'SIMULATION' | 'NOIR_GRID' | 'ESOTERIC' | 'PHONK_WAVE' | 'KINETIC_TYPO' | 'MONOLITH' | 'ETHER' | 'CHAOS';
 export type ColorPalette = 'DEFAULT' | 'NEON' | 'SUNSET' | 'CYBER' | 'MONO' | 'CUSTOM' | 'BRUTALIST';
 export type TypographyStyle = 'CLASSIC' | 'BOUNCE' | 'GLITCH' | 'STAGGER';
 export type AspectRatio = '9:16' | '1:1' | '16:9';
@@ -46,6 +47,8 @@ export interface VisualizerSettings {
   showTitle: boolean;
   showArtist: boolean;
   showLyrics: boolean;
+  showSunoLyrics: boolean;
+  autoMastering: boolean;
   customTitle: string;
   customArtist: string;
   customLyrics: string;

@@ -11,10 +11,18 @@ import { GlitchVisualizer } from '../visualizers/GlitchVisualizer';
 import { SpectrumVisualizer } from '../visualizers/SpectrumVisualizer';
 import { RadialVisualizer } from '../visualizers/RadialVisualizer';
 import { SimulationVisualizer } from '../visualizers/SimulationVisualizer';
+import { PhonkWaveVisualizer } from '../visualizers/PhonkWaveVisualizer';
+import { KineticTypoVisualizer } from '../visualizers/KineticTypoVisualizer';
+import { NoirGridVisualizer } from '../visualizers/NoirGridVisualizer';
+import { EsotericVisualizer } from '../visualizers/EsotericVisualizer';
+import { MonolithVisualizer } from '../visualizers/MonolithVisualizer';
+import { EtherVisualizer } from '../visualizers/EtherVisualizer';
+import { ChaosVisualizer } from '../visualizers/ChaosVisualizer';
 import { cn } from '../lib/utils';
 
 interface VisualizerCanvasProps {
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  analyserRef?: React.RefObject<AnalyserNode | null>;
   coverUrl?: string;
   isPlaying: boolean;
   settings: VisualizerSettings;
@@ -27,7 +35,8 @@ export interface VisualizerHandle {
 }
 
 export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasProps>(({ 
-  audioRef, 
+  audioRef,
+  analyserRef,
   coverUrl, 
   isPlaying, 
   settings, 
@@ -63,32 +72,15 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
 
   // Initialize Core Logic
   useEffect(() => {
-    if (!canvasRef.current || !audioRef.current) return;
+    if (!canvasRef.current || !analyserRef?.current) return;
 
     const canvas = canvasRef.current;
-    let audioCtx: AudioContext;
-    let source: MediaElementAudioSourceNode;
+    
     let processor: AudioProcessor;
     let renderer: GlitchRenderer;
 
     try {
-      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const analyser = audioCtx.createAnalyser();
-      
-      // Attempt to create source - Note: this can only happen once per element
-      try {
-        source = audioCtx.createMediaElementSource(audioRef.current);
-      } catch (e) {
-        console.warn("Audio source already connected or failed to connect:", e);
-        // If it fails, it might be already connected to another context 
-        // In many React environments, we have to assume it's pre-connected or use a global manager
-        return; 
-      }
-      
-      source.connect(analyser);
-      analyser.connect(audioCtx.destination);
-
-      processor = new AudioProcessor(analyser);
+      processor = new AudioProcessor(analyserRef.current);
       renderer = new GlitchRenderer(canvas);
       
       const visualizers = new Map<string, IVisualizer>();
@@ -96,17 +88,16 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
       visualizers.set('SPECTRUM', new SpectrumVisualizer());
       visualizers.set('RADIAL', new RadialVisualizer());
       visualizers.set('SIMULATION', new SimulationVisualizer());
+      visualizers.set('PHONK_WAVE', new PhonkWaveVisualizer());
+      visualizers.set('KINETIC_TYPO', new KineticTypoVisualizer());
+      visualizers.set('NOIR_GRID', new NoirGridVisualizer());
+      visualizers.set('ESOTERIC', new EsotericVisualizer());
+      visualizers.set('MONOLITH', new MonolithVisualizer());
+      visualizers.set('ETHER', new EtherVisualizer());
+      visualizers.set('CHAOS', new ChaosVisualizer());
 
       engineRef.current = { renderer, processor, visualizers };
       renderer.setCoverImage(coverUrl || null);
-
-      // Resume context on first play/interaction if suspended
-      const resumeContext = () => {
-        if (audioCtx.state === 'suspended') {
-          audioCtx.resume();
-        }
-      };
-      audioRef.current.addEventListener('play', resumeContext);
 
     } catch (err) {
       console.error("Critical Visualizer Initialization Error:", err);
@@ -114,12 +105,9 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
     }
 
     return () => {
-      // Disconnecting often causes issues if re-connecting, so we close context
-      if (audioCtx) {
-        audioCtx.close().catch(console.error);
-      }
+      // Cleanup if needed
     };
-  }, [audioRef]);
+  }, [analyserRef?.current]);
 
   // Handle Dynamic Logic Updates (Mode, Cover)
   useEffect(() => {

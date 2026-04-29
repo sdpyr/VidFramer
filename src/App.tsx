@@ -1,168 +1,146 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useState, useRef, useEffect } from "react";
+import {
+  Upload,
+  Play,
+  Pause,
+  Download,
+  Zap,
+  RefreshCw,
+  Divide,
+  Film,
+  Monitor,
+} from "lucide-react";
+import { extractMetadata, downsampleAudio } from "./services/audioService";
+import { generateSyncedLyrics } from "./services/lyricSyncService";
+import {
+  VisualizerCanvas,
+  VisualizerHandle,
+} from "./components/VisualizerCanvas";
+import {
+  MusicMetadata,
+  VisualizerSettings,
+  VisualizerMode,
+  ColorPalette,
+} from "./types";
+import { cn } from "./lib/utils";
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Music, Play, Pause, RefreshCw, Layers, Layout, Download, Sliders, Save, FolderOpen, ArrowUp, ArrowDown, Zap, PlusCircle } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { extractMetadata } from './services/audioService';
-import { fetchLyrics } from './services/lyricsService';
-import { VisualizerCanvas, VisualizerHandle } from './components/VisualizerCanvas';
-import { MusicMetadata, VisualizerSettings, VisualizerMode, VisualizerPreset, ColorPalette } from './types';
-import { cn } from './lib/utils';
-import { generateSyncedLyrics } from './services/lyricSyncService';
+const createSpotifyMastering = (ctx: AudioContext) => {
+  const lowEQ = ctx.createBiquadFilter();
+  lowEQ.type = 'lowshelf';
+  lowEQ.frequency.value = 85;
+  lowEQ.gain.value = 2.5;
+
+  const highEQ = ctx.createBiquadFilter();
+  highEQ.type = 'highshelf';
+  highEQ.frequency.value = 8000;
+  highEQ.gain.value = 2.0;
+
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -24;
+  compressor.knee.value = 30;
+  compressor.ratio.value = 4;
+  compressor.attack.value = 0.003;
+  compressor.release.value = 0.25;
+
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -1.0; 
+  limiter.knee.value = 0.0;
+  limiter.ratio.value = 20.0;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.05;
+
+  const makeupGain = ctx.createGain();
+  makeupGain.gain.value = 1.8;
+
+  lowEQ.connect(highEQ);
+  highEQ.connect(makeupGain);
+  makeupGain.connect(compressor);
+  compressor.connect(limiter);
+
+  return { input: lowEQ, output: limiter };
+};
 
 export default function App() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [metadata, setMetadata] = useState<MusicMetadata | null>(null);
-  const [lyrics, setLyrics] = useState<string>('');
-  const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [customCover, setCustomCover] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [renderStep, setRenderStep] = useState<string>('');
-  const [presets, setPresets] = useState<VisualizerPreset[]>([]);
-  
+  const [renderStep, setRenderStep] = useState<string>("");
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState<string>("MP3'ü Buraya Bırak");
+
   const [settings, setSettings] = useState<VisualizerSettings>({
-    intensity: 1.0,
+    intensity: 1.6,
     colorDistortion: 0.5,
     displacement: 0.5,
-    mode: 'GLITCH',
-    aspectRatio: '1:1',
+    mode: "SIMULATION",
+    aspectRatio: "9:16",
     coverScale: 1.0,
     coverX: 50,
     coverY: 50,
     showTitle: true,
     showArtist: true,
     showLyrics: false,
-    customTitle: '',
-    customArtist: '',
-    customLyrics: '',
-    titleFont: 'Space Grotesk',
-    artistFont: 'Space Grotesk',
-    lyricsFont: 'Space Grotesk',
+    showSunoLyrics: false,
+    autoMastering: false,
+    customTitle: "",
+    customArtist: "",
+    customLyrics: "",
+    titleFont: "Space Grotesk",
+    artistFont: "JetBrains Mono",
+    lyricsFont: "Inter",
     syncedLyrics: [],
-    bloom: 0.2,
-    chromaticAberration: 0.1,
-    vignette: 0.5,
-    pixelSorting: 0,
-    scanLines: 0.2,
-    rgbSplit: 0.3,
+    bloom: 0.8,
+    chromaticAberration: 0.4,
+    vignette: 0.8,
+    pixelSorting: 0.5,
+    scanLines: 0.6,
+    rgbSplit: 0.8,
     beatSync: true,
-    typographyStyle: 'CLASSIC',
-    palette: 'DEFAULT',
-    primaryColor: '#F27D26',
-    secondaryColor: '#FF0055',
-    lyricsPastOpacity: 0.2,
-    lyricsFutureOpacity: 0.1,
-    lyricsBlur: 0
+    typographyStyle: "GLITCH",
+    palette: "BRUTALIST",
+    primaryColor: "#FFD700",
+    secondaryColor: "#1A1A1A",
+    lyricsPastOpacity: 0.5,
+    lyricsFutureOpacity: 0.3,
+    lyricsBlur: 4,
   });
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [isEditingLyrics, setIsEditingLyrics] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const masteringNodesRef = useRef<{ input: BiquadFilterNode; output: DynamicsCompressorNode } | null>(null);
+  const isMasteringConnectedRef = useRef(false);
+  const canvasHandleRef = useRef<VisualizerHandle | null>(null);
 
-  const palettes: { id: ColorPalette, name: string, primary: string, secondary: string }[] = [
-    { id: 'DEFAULT', name: 'Original', primary: '#F27D26', secondary: '#ffffff' },
-    { id: 'NEON', name: 'Neon City', primary: '#00ffcc', secondary: '#ff00ff' },
-    { id: 'SUNSET', name: 'Deep Sunset', primary: '#ff4e50', secondary: '#f9d423' },
-    { id: 'CYBER', name: 'Cyberpunk', primary: '#ffff00', secondary: '#0000ff' },
-    { id: 'MONO', name: 'Noir', primary: '#ffffff', secondary: '#333333' },
-    { id: 'BRUTALIST', name: 'Industrial', primary: '#FFD700', secondary: '#1A1A1A' },
-  ];
+  const setupAudioRouting = () => {
+    if (!audioContextRef.current || !sourceRef.current || !analyserRef.current) return;
 
-  const randomizeVisuals = () => {
-    const modes: VisualizerMode[] = ['GLITCH', 'WAVEFORM', 'SPECTRUM', 'RADIAL', 'PARTICLES', 'TUNNEL', 'SIMULATION'];
-    const typos: any[] = ['CLASSIC', 'BOUNCE', 'GLITCH', 'STAGGER'];
-    
-    setSettings(prev => ({
-      ...prev,
-      mode: modes[Math.floor(Math.random() * modes.length)],
-      typographyStyle: typos[Math.floor(Math.random() * typos.length)],
-      intensity: 0.5 + Math.random(),
-      bloom: Math.random() * 0.5,
-      chromaticAberration: Math.random() * 0.3,
-      rgbSplit: Math.random() * 0.5,
-      pixelSorting: Math.random() > 0.5 ? Math.random() : 0
-    }));
-  };
+    // Disconnect previously connected target of source
+    sourceRef.current.disconnect();
+    if (masteringNodesRef.current) {
+        masteringNodesRef.current.output.disconnect();
+    }
 
-  useEffect(() => {
-    const saved = localStorage.getItem('glitchframe_presets');
-    if (saved) setPresets(JSON.parse(saved));
-  }, []);
-
-  const savePreset = () => {
-    const name = prompt("Preset Name:");
-    if (!name) return;
-    const newPreset: VisualizerPreset = {
-      id: Date.now().toString(),
-      name,
-      settings: { ...settings, syncedLyrics: [] } // Don't save lyrics in presets
-    };
-    const updated = [...presets, newPreset];
-    setPresets(updated);
-    localStorage.setItem('glitchframe_presets', JSON.stringify(updated));
-  };
-
-  const loadPreset = (preset: VisualizerPreset) => {
-    setSettings(prev => ({ 
-      ...preset.settings, 
-      syncedLyrics: prev.syncedLyrics,
-      customLyrics: prev.customLyrics 
-    }));
-  };
-
-  const deletePreset = (id: string) => {
-    const updated = presets.filter(p => p.id !== id);
-    setPresets(updated);
-    localStorage.setItem('glitchframe_presets', JSON.stringify(updated));
-  };
-  
-  const handleAutoSync = async () => {
-    if (!audioFile) return;
-    setIsSyncing(true);
-    try {
-      const reader = new FileReader();
-      const fileDataPromise = new Promise<string>((resolve) => {
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(audioFile);
-      });
-      const base64 = await fileDataPromise;
-      const synced = await generateSyncedLyrics(base64, audioFile.type);
-      if (synced && synced.length > 0) {
-        setSettings(prev => ({ 
-          ...prev, 
-          syncedLyrics: synced,
-          showLyrics: true 
-        }));
-      }
-    } catch (e) {
-      console.error("Auto-sync error:", e);
-    } finally {
-      setIsSyncing(false);
+    if (settings.autoMastering) {
+        if (!masteringNodesRef.current) {
+            masteringNodesRef.current = createSpotifyMastering(audioContextRef.current);
+        }
+        sourceRef.current.connect(masteringNodesRef.current.input);
+        masteringNodesRef.current.output.connect(analyserRef.current);
+        isMasteringConnectedRef.current = true;
+    } else {
+        sourceRef.current.connect(analyserRef.current);
+        isMasteringConnectedRef.current = false;
     }
   };
 
-  const fonts = [
-    'Space Grotesk',
-    'Inter',
-    'JetBrains Mono',
-    'Bebas Neue',
-    'Montserrat',
-    'Playfair Display',
-    'Outfit',
-    'Syncopate',
-    'Kanit'
-  ];
-  
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const canvasHandleRef = useRef<VisualizerHandle | null>(null);
+  useEffect(() => {
+    setupAudioRouting();
+  }, [settings.autoMastering]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [coverUrl, setCoverUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (audioFile) {
@@ -172,46 +150,109 @@ export default function App() {
     }
   }, [audioFile]);
 
-  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Sync Audio Progress
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateProgress = () => {
+      setProgress((audio.currentTime / audio.duration) * 100);
+    };
+
+    audio.addEventListener("timeupdate", updateProgress);
+    audio.addEventListener("ended", () => {
+      setIsPlaying(false);
+      if (isRecording) stopRecording();
+    });
+
+    return () => {
+      audio.removeEventListener("timeupdate", updateProgress);
+    };
+  }, [audioFile, isRecording]);
+
+  const handleAudioUpload = async (
+    e:
+      | React.ChangeEvent<HTMLInputElement>
+      | { target: { files: FileList | null } },
+  ) => {
     const file = e.target.files?.[0];
     if (file) {
       setAudioFile(file);
       setIsPlaying(false);
+      setStatus("Analiz ediliyor...");
       const data = await extractMetadata(file);
       setMetadata(data);
-      if (data.coverUrl) setCoverUrl(data.coverUrl);
-      
-      setIsLoadingLyrics(true);
-      const lyricsText = await fetchLyrics(data.title || file.name, data.artist || '');
-      setLyrics(lyricsText);
-      setIsLoadingLyrics(false);
 
-      const modes: VisualizerMode[] = ['GLITCH', 'WAVEFORM', 'SPECTRUM', 'RADIAL', 'PARTICLES', 'TUNNEL'];
-      const randomMode = modes[Math.floor(Math.random() * modes.length)];
-
-      setSettings(prev => ({ 
-        ...prev, 
-        mode: randomMode,
-        customTitle: data.title || '', 
-        customArtist: data.artist || '',
-        customLyrics: lyricsText
+      setSettings((prev) => ({
+        ...prev,
+        customTitle: data.title || "",
+        customArtist: data.artist || "",
       }));
+
+      // Auto-fetch Lyrics for Karaoke effect using Gemini Vision API via proxy
+      if (file.type) {
+        try {
+          setStatus("Ses Sıkıştırılıyor...");
+          const downsampledBlob = await downsampleAudio(file);
+          
+          setStatus("Sözler Çıkarılıyor...");
+          const reader = new FileReader();
+          const fileDataPromise = new Promise<string>((resolve) => {
+            reader.onload = () =>
+              resolve((reader.result as string).split(",")[1]);
+            reader.readAsDataURL(downsampledBlob);
+          });
+          const base64 = await fileDataPromise;
+          const synced = await generateSyncedLyrics(base64, "audio/wav");
+          if (synced && synced.length > 0) {
+            setSettings((prev) => ({
+              ...prev,
+              syncedLyrics: synced,
+              showLyrics: true,
+            }));
+          }
+        } catch (e) {
+          console.warn("Could not sync lyrics automatically", e);
+        }
+      }
+
+      setStatus(""); // Ready
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setCustomCover(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleAudioUpload({ target: { files: e.dataTransfer.files } });
     }
   };
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (!audioRef.current) return;
+
+    if (!audioContextRef.current) {
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      audioContextRef.current = new AudioContext();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = 1024;
+    }
+
+    const ctx = audioContextRef.current;
+
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    if (!sourceRef.current) {
+      try {
+        sourceRef.current = ctx.createMediaElementSource(audioRef.current);
+        setupAudioRouting();
+        analyserRef.current!.connect(ctx.destination);
+      } catch (e) {
+        console.warn("Source node creation failed or already connected:", e);
+      }
+    }
+
     if (isPlaying) {
       audioRef.current.pause();
     } else {
@@ -222,74 +263,83 @@ export default function App() {
 
   const startRecording = () => {
     if (!canvasHandleRef.current || !audioFile || !audioRef.current) return;
-    
-    // Reset to beginning for full export
+
     audioRef.current.currentTime = 0;
-    
-    const combinedStream = canvasHandleRef.current.getStream();
-    if (!combinedStream) return;
-    
+
+    const canvasStream = canvasHandleRef.current.getStream();
+    if (!canvasStream) return;
+
+    let combinedStream = canvasStream;
+    if (audioContextRef.current && analyserRef.current) {
+      const streamDestination = audioContextRef.current.createMediaStreamDestination();
+      analyserRef.current.connect(streamDestination);
+      combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...streamDestination.stream.getAudioTracks()
+      ]);
+    }
+
     const chunks: Blob[] = [];
     let recorder: MediaRecorder;
-    
-    const mimeType = MediaRecorder.isTypeSupported('video/mp4') 
-      ? 'video/mp4' 
-      : MediaRecorder.isTypeSupported('video/webm;codecs=vp9') 
-        ? 'video/webm;codecs=vp9' 
-        : 'video/webm';
+
+    const mimeType = MediaRecorder.isTypeSupported("video/mp4")
+      ? "video/mp4"
+      : MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+        ? "video/webm;codecs=vp9,opus"
+        : MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : "video/webm";
 
     try {
-      recorder = new MediaRecorder(combinedStream, { 
+      recorder = new MediaRecorder(combinedStream, {
         mimeType,
-        videoBitsPerSecond: 20000000 // 20Mbps for high quality render
+        videoBitsPerSecond: 20000000,
       });
     } catch (e) {
       recorder = new MediaRecorder(combinedStream);
     }
-    
+
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
     };
-    
-    setRenderStep('Analyzing audio context...');
-    
+
+    setRenderStep("Sesler analiz ediliyor...");
+
     recorder.onstart = () => {
-        setRenderStep('Recording frames... (Stay in this tab)');
+      setRenderStep("Görseller işleniyor... (Lütfen bekleyin)");
     };
-    
+
     recorder.onstop = () => {
-      setRenderStep('Packaging video file...');
-      const blob = new Blob(chunks, { type: 'video/webm' });
+      setRenderStep("Video paketleniyor...");
+      const blob = new Blob(chunks, { type: "video/webm" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      const ext = recorder.mimeType.includes('mp4') ? 'mp4' : 'webm';
-      a.download = `${metadata?.title || 'glitchframe'}_${settings.aspectRatio.replace(':', '-')}.${ext}`;
+      const ext = recorder.mimeType.includes("mp4") ? "mp4" : "webm";
+      a.download = `${metadata?.title || "video"}_${settings.aspectRatio.replace(":", "-")}.${ext}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
+
       setIsRecording(false);
-      setRenderStep('');
+      setRenderStep("");
       if (audioRef.current) audioRef.current.pause();
       setIsPlaying(false);
     };
 
-    // Auto-stop when audio reaches end
     const onEnded = () => {
-      setRenderStep('Finalizing render...');
-      if (recorder.state === 'recording') {
+      if (recorder.state === "recording") {
         recorder.stop();
       }
-      audioRef.current?.removeEventListener('ended', onEnded);
+      audioRef.current?.removeEventListener("ended", onEnded);
     };
-    audioRef.current.addEventListener('ended', onEnded);
+    audioRef.current.addEventListener("ended", onEnded);
 
     recorder.start();
     mediaRecorderRef.current = recorder;
     setIsRecording(true);
-    
+
     audioRef.current.play();
     setIsPlaying(true);
   };
@@ -301,691 +351,483 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  function formatTime(seconds: number) {
+    if (isNaN(seconds)) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  }
 
-    const updateProgress = () => {
-      setProgress((audio.currentTime / audio.duration) * 100);
-    };
+  const VIBES = [
+    {
+      id: "trap",
+      name: "🔥 Dark Trap",
+      settings: {
+        mode: "NOIR_GRID",
+        palette: "BRUTALIST",
+        intensity: 1.6,
+        rgbSplit: 0.8,
+        pixelSorting: 0.5,
+        chromaticAberration: 0.4,
+        primaryColor: "#FFD700",
+        secondaryColor: "#1A1A1A",
+      },
+    },
+    {
+      id: "simulation",
+      name: "👁️ Simulation",
+      settings: {
+        mode: "SIMULATION",
+        palette: "MONO",
+        intensity: 1.0,
+        bloom: 0.8,
+        scanLines: 0.6,
+        primaryColor: "#ffffff",
+        secondaryColor: "#222222",
+      },
+    },
+    {
+      id: "phonk",
+      name: "⚡ Phonk Wave",
+      settings: {
+        mode: "PHONK_WAVE",
+        palette: "NEON",
+        intensity: 1.5,
+        bloom: 0.9,
+        rgbSplit: 0.6,
+        pixelSorting: 0.2,
+        primaryColor: "#FFD700",
+        secondaryColor: "#1A1A1A",
+      },
+    },
+    {
+      id: "esoteric",
+      name: "🔮 Esoteric",
+      settings: {
+        mode: "ESOTERIC",
+        palette: "SUNSET",
+        intensity: 0.8,
+        bloom: 0.6,
+        scanLines: 0.2,
+        primaryColor: "#ff4e50",
+        secondaryColor: "#f9d423",
+        rgbSplit: 0.3,
+      },
+    },
+    {
+      id: "kinetic",
+      name: "💥 Kinetic",
+      settings: {
+        mode: "KINETIC_TYPO",
+        palette: "BRUTALIST",
+        intensity: 1.8,
+        bloom: 0.5,
+        rgbSplit: 0.8,
+        pixelSorting: 0.4,
+        primaryColor: "#FFD700",
+        secondaryColor: "#1A1A1A",
+      },
+    },
+    {
+      id: "rad",
+      name: "🌌 Lofi Space",
+      settings: {
+        mode: "RADIAL",
+        palette: "SUNSET",
+        intensity: 0.6,
+        bloom: 0.4,
+        vignette: 0.8,
+        scanLines: 0.1,
+        primaryColor: "#ff4e50",
+        secondaryColor: "#f9d423",
+        rgbSplit: 0.1,
+      },
+    },
+    {
+      id: "monolith",
+      name: "🏗️ Monolith",
+      settings: {
+        mode: "MONOLITH",
+        palette: "BRUTALIST",
+        intensity: 1.5,
+        bloom: 0.2,
+        rgbSplit: 0.8,
+        pixelSorting: 0.5,
+        primaryColor: "#FF0000",
+        secondaryColor: "#333333",
+      },
+    },
+    {
+      id: "ether",
+      name: "🌊 Ether",
+      settings: {
+        mode: "ETHER",
+        palette: "SUNSET",
+        intensity: 0.6,
+        bloom: 0.8,
+        rgbSplit: 0.2,
+        pixelSorting: 0,
+        primaryColor: "#00E5FF",
+        secondaryColor: "#B388FF",
+      },
+    },
+    {
+      id: "chaos",
+      name: "🌪️ Chaos",
+      settings: {
+        mode: "CHAOS",
+        palette: "NEON",
+        intensity: 2.0,
+        bloom: 0.9,
+        rgbSplit: 0.7,
+        pixelSorting: 0.6,
+        primaryColor: "#FF00FF",
+        secondaryColor: "#00FF00",
+      },
+    },
+  ] as const;
 
-    audio.addEventListener('timeupdate', updateProgress);
-    audio.addEventListener('ended', () => {
-      setIsPlaying(false);
-      if (isRecording) stopRecording();
-    });
-    
-    return () => {
-      audio.removeEventListener('timeupdate', updateProgress);
-    };
-  }, [audioFile, isRecording]);
-
-  const [activeTab, setActiveTab] = useState<'visuals' | 'text' | 'lyrics'>('visuals');
+  const FORMATS = [
+    { id: "9:16", name: "Reels / TikTok", icon: Monitor, css: "w-4 h-7" },
+    { id: "16:9", name: "YouTube", icon: Film, css: "w-7 h-4" },
+    { id: "1:1", name: "Instagram", icon: Divide, css: "w-5 h-5" },
+  ] as const;
 
   return (
-    <div className="min-h-screen bg-[#020202] text-[#F0F0F0] font-sans selection:bg-[#F27D26] selection:text-white flex flex-col">
-      {/* Top Studio Bar */}
-      <nav className="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50 gap-4">
+    <div
+      className="min-h-screen bg-[#050505] text-[#E4E3E0] font-sans selection:bg-[#F27D26] selection:text-white flex flex-col relative overflow-hidden"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+    >
+      {/* Post-Process UI Scanline Effect (For Brutalist / Simulation Style) */}
+      <div
+        className="pointer-events-none absolute inset-0 mix-blend-overlay opacity-30 z-[100]"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(0deg, transparent, transparent 2px, #000 2px, #000 4px)",
+        }}
+      ></div>
+
+      {/* Hidden Audio Element */}
+      {audioUrl && (
+        <audio ref={audioRef} src={audioUrl} crossOrigin="anonymous" />
+      )}
+
+      {/* Main Top Nav */}
+      <nav className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-[#F27D26] rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(242,125,38,0.3)]">
-            <Layers className="text-black w-5 h-5" />
+          <div className="w-10 h-10 bg-[#FFD700] rounded-xl flex items-center justify-center shadow-[0_0_20px_rgba(255,215,0,0.4)]">
+            <Zap className="text-[#050505] w-6 h-6" />
           </div>
           <div className="flex flex-col leading-tight">
-            <h1 className="text-sm font-black tracking-tight uppercase">Glitchframe</h1>
-            <span className="text-[8px] font-mono opacity-40 uppercase tracking-widest">Studio_v2.1</span>
+            <h1 className="text-xl font-black tracking-tighter uppercase font-display text-[#FFD700]">
+              MUSE.AI
+            </h1>
+            <span className="text-[10px] font-mono opacity-50 uppercase tracking-widest">
+              ONE-CLICK RENDER
+            </span>
           </div>
-        </div>
-
-                    <div className="flex gap-4">
-                      {[
-                        { id: 'visuals', label: 'Nodes', icon: Sliders, sub: 'Visual Engine' },
-                        { id: 'text', label: 'Design', icon: Layout, sub: 'Layout & Type' },
-                        { id: 'lyrics', label: 'Story', icon: Music, sub: 'Lyrics Sync' },
-                      ].map((tab) => (
-                        <button
-                          key={tab.id}
-                          onClick={() => setActiveTab(tab.id as any)}
-                          className={cn(
-                            "flex-1 px-4 py-3 rounded-2xl text-[10px] font-black uppercase transition-all flex flex-col items-center gap-1",
-                            activeTab === tab.id 
-                              ? "bg-[#F27D26] text-black shadow-[0_10px_20px_-5px_rgba(242,125,38,0.4)]" 
-                              : "bg-white/[0.03] text-white/30 hover:text-white hover:bg-white/5 border border-white/5"
-                          )}
-                        >
-                          <tab.icon size={14} />
-                          <span>{tab.label}</span>
-                        </button>
-                      ))}
-                    </div>
-
-        <div className="flex items-center gap-3">
-          {audioFile && (
-            <button 
-              onClick={isRecording ? stopRecording : startRecording}
-              className={cn(
-                "px-5 py-2.5 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 transition-all",
-                isRecording 
-                  ? "bg-red-500 text-white animate-pulse" 
-                  : "bg-white text-black hover:bg-[#F27D26] hover:text-white"
-              )}
-            >
-              {isRecording ? "STOP RECORDING" : <><Download size={12} /> EXPORT 1080P</>}
-            </button>
-          )}
         </div>
       </nav>
 
-      <main className="flex-1 flex flex-col lg:flex-row lg:h-[calc(100vh-82px)] bg-[#050505] overflow-hidden">
-        {/* Left: Interactive Preview (Sticky on mobile, Fixed-ish on desktop) */}
-        <div className="lg:flex-1 bg-black p-4 lg:p-12 flex flex-col items-center justify-center relative overflow-hidden h-[50vh] lg:h-full sticky top-0 z-20 border-b lg:border-b-0 border-white/5">
-          <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white/20 via-transparent to-transparent" />
-          
-          <div className="relative z-10 w-full max-w-2xl h-full lg:h-auto aspect-square flex items-center justify-center overflow-hidden">
-            <VisualizerCanvas 
-              ref={canvasHandleRef}
-              audioRef={audioRef} 
-              coverUrl={customCover || coverUrl || undefined}
-              isPlaying={isPlaying}
-              settings={settings}
-              onUpdateSettings={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
-              metadata={metadata}
-            />
-            
-            {!audioFile && (
-              <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl rounded-[40px] border-4 border-dashed border-white/5 hover:border-[#F27D26]/50 cursor-pointer transition-all group p-12">
-                <div className="w-24 h-24 bg-[#F27D26]/10 rounded-full flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
-                  <Upload className="w-10 h-10 text-[#F27D26]" />
+      <main className="flex-1 w-full mx-auto p-4 lg:p-8 relative z-10 flex flex-col items-center">
+        {!audioFile ? (
+          // HUGE DROPZONE (Zero Thought)
+          <div className="flex-1 w-full h-full flex items-center justify-center min-h-[60vh]">
+            <label className="w-full max-w-4xl aspect-[16/9] border-4 border-dashed border-[#FFD700]/30 bg-[#050505]/80 hover:bg-[#FFD700]/5 hover:border-[#FFD700] transition-all rounded-[40px] flex flex-col items-center justify-center p-12 cursor-pointer group shadow-2xl relative overflow-hidden backdrop-blur-xl">
+              <div className="absolute inset-0 bg-[#FFD700]/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+              {status !== "MP3'ü Buraya Bırak" ? (
+                <div className="text-center relative z-10 animate-pulse">
+                  <h2 className="text-4xl lg:text-6xl font-black text-[#FFD700] mb-4 uppercase tracking-tighter">
+                    {status}
+                  </h2>
+                  <p className="text-sm font-mono opacity-50 uppercase tracking-widest text-[#E4E3E0]">
+                    Hazırlanıyor...
+                  </p>
                 </div>
-                <h3 className="text-2xl font-black uppercase tracking-tighter mb-2">Drop your sound</h3>
-                <p className="text-sm font-medium opacity-40 uppercase tracking-widest text-center px-12 group-hover:opacity-100">MP3, WAV OR M4A (MAX 50MB)</p>
-                <div className="mt-8 px-6 py-2 bg-white/5 rounded-full text-[10px] font-black opacity-40 group-hover:opacity-100 transition-opacity">OR CLICK TO BROWSE</div>
-                <input type="file" className="hidden" accept="audio/*" onChange={handleAudioUpload} />
-              </label>
-            )}
+              ) : (
+                <div className="flex flex-col items-center relative z-10">
+                  <div className="w-32 h-32 bg-[#FFD700]/10 rounded-full flex items-center justify-center mb-8 group-hover:scale-110 group-hover:bg-[#FFD700]/20 transition-all duration-500">
+                    <Upload className="w-14 h-14 text-[#FFD700]" />
+                  </div>
+                  <h2 className="text-4xl lg:text-5xl font-black text-[#FFD700] mb-4 uppercase tracking-tighter text-center">
+                    MP3'Ü BURAYA BIRAK
+                  </h2>
+                  <p className="text-sm lg:text-base font-bold opacity-60 uppercase tracking-widest text-center text-[#E4E3E0]">
+                    TIKLA VEYA SÜRÜKLE (MAX 50MB)
+                  </p>
+                </div>
+              )}
+              <input
+                type="file"
+                className="hidden"
+                accept="audio/*"
+                onChange={handleAudioUpload}
+              />
+            </label>
           </div>
+        ) : (
+          // VISUALIZER & CONTROLS UI
+          <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-8 lg:gap-12">
+            {/* Left: Canvas Area */}
+            <div className="flex-1 flex flex-col items-center gap-6">
+              <div className="relative w-full max-w-3xl flex justify-center bg-black rounded-3xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden group">
+                <VisualizerCanvas
+                  ref={canvasHandleRef}
+                  audioRef={audioRef}
+                  analyserRef={analyserRef}
+                  coverUrl={metadata?.coverUrl}
+                  isPlaying={isPlaying}
+                  settings={settings}
+                  onUpdateSettings={() => {}}
+                  metadata={metadata}
+                />
 
-          <div className="mt-8 flex gap-4 w-full max-w-2xl">
-            {(['9:16', '1:1', '16:9'] as const).map(ratio => (
-              <button 
-                key={ratio}
-                onClick={() => setSettings(prev => ({ ...prev, aspectRatio: ratio }))}
-                className={cn(
-                  "flex-1 p-4 rounded-3xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden",
-                  settings.aspectRatio === ratio 
-                    ? "bg-[#F27D26] border-[#F27D26] text-black shadow-2xl scale-105 z-10" 
-                    : "bg-white/5 border-white/5 text-white/40 hover:border-white/10"
-                )}
-              >
-                <div className={cn(
-                  "border-2 rounded transition-all group-hover:scale-110",
-                  ratio === '9:16' ? "w-4 h-7" : ratio === '16:9' ? "w-7 h-4" : "w-5 h-5",
-                  settings.aspectRatio === ratio ? "border-black" : "border-white/20"
-                )} />
-                <span className="text-[10px] font-black uppercase">{ratio === '9:16' ? 'Reels' : ratio === '16:9' ? 'YouTube' : 'Feed'}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Floating Player - Compact for sticky layout */}
-          <div className="mt-4 lg:mt-12 w-full max-w-xl bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 lg:p-6 flex flex-col gap-3 lg:gap-4 shadow-2xl relative z-20">
-            <div className="flex items-center justify-between gap-4 lg:gap-6">
-              <div className="flex-1 min-w-0">
-                <h2 className="text-sm lg:text-xl font-bold truncate tracking-tight">{metadata?.title || "No Track Selected"}</h2>
-                <p className="text-[9px] lg:text-xs text-[#F27D26] font-bold uppercase tracking-wider opacity-80">{metadata?.artist || "AWAITINGPayload"}</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button onClick={togglePlay} disabled={!audioFile} className={cn(
-                  "w-10 h-10 lg:w-14 lg:h-14 rounded-xl lg:rounded-2xl flex items-center justify-center transition-all",
-                  audioFile ? "bg-white text-black hover:bg-[#F27D26] hover:scale-105 active:scale-95" : "bg-white/5 opacity-20 cursor-not-allowed"
-                )}>
-                  {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+                {/* Canvas Hover Play Button */}
+                <button
+                  onClick={togglePlay}
+                  className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <div className="w-24 h-24 bg-[#FFD700] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,215,0,0.5)] hover:scale-110 active:scale-95 transition-all text-[#050505]">
+                    {isPlaying ? (
+                      <Pause size={40} fill="currentColor" />
+                    ) : (
+                      <Play size={40} fill="currentColor" className="ml-2" />
+                    )}
+                  </div>
                 </button>
               </div>
-            </div>
 
-            <div className="flex flex-col gap-3">
-              <div 
-                className="h-2 w-full bg-white/10 rounded-full overflow-hidden cursor-pointer group relative"
-                onClick={(e) => {
-                  if (isRecording) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  audioRef.current && (audioRef.current.currentTime = (x / rect.width) * audioRef.current.duration);
-                }}
-              >
-                <div className={cn("h-full transition-all duration-100 relative", isRecording ? "bg-[#F27D26]" : "bg-white")} style={{ width: `${progress}%` }}>
-                  {!isRecording && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full opacity-0 group-hover:opacity-100 shadow-[0_0_10px_white]" />}
+              {/* Playback Controls & Progress Bar */}
+              <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
+                <div className="flex flex-col gap-4">
+                  {/* Export Progress View */}
+                  {isRecording && (
+                    <div className="w-full bg-[#FFD700]/10 p-4 rounded-xl border border-[#FFD700]/20 flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 bg-[#FFD700] rounded-full animate-ping" />
+                        <span className="text-sm font-black text-[#FFD700] uppercase tracking-wider">
+                          {renderStep}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-[#FFD700]">
+                        {Math.round(progress)}%
+                      </span>
+                    </div>
+                  )}
+
+                  <div
+                    className="h-3 w-full bg-black/50 rounded-full overflow-hidden cursor-pointer relative"
+                    onClick={(e) => {
+                      if (isRecording) return;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      audioRef.current &&
+                        (audioRef.current.currentTime =
+                          (x / rect.width) * audioRef.current.duration);
+                    }}
+                  >
+                    <div
+                      className={cn(
+                        "h-full transition-all duration-100 relative",
+                        isRecording ? "bg-[#FFD700]" : "bg-white",
+                      )}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs font-mono font-bold opacity-50">
+                    <span>
+                      {audioRef.current
+                        ? formatTime(audioRef.current.currentTime)
+                        : "00:00"}
+                    </span>
+                    <div className="text-center truncate max-w-[200px] uppercase">
+                      {metadata?.title || "Unknown Track"}
+                    </div>
+                    <span>
+                      {audioRef.current
+                        ? formatTime(audioRef.current.duration)
+                        : "00:00"}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[8px] lg:text-[10px] font-bold font-mono opacity-30">
-                  {audioRef.current ? formatTime(audioRef.current.currentTime) : '00:00'} / {audioRef.current ? formatTime(audioRef.current.duration) : '00:00'}
-                </span>
-                {isRecording && (
-                    <div className="flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
-                        <span className="text-[9px] font-black text-[#F27D26] uppercase animate-pulse">{renderStep}</span>
-                    </div>
-                )}
+            </div>
+
+            {/* Right: Zero Thought Controls */}
+            <div className="w-full lg:w-[400px] flex flex-col gap-8">
+              {/* Aspect Ratio Picker */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                  1. Format Seç (Sosyal Medya)
+                </h3>
+                <div className="flex gap-3">
+                  {FORMATS.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          aspectRatio: f.id as any,
+                        }))
+                      }
+                      className={cn(
+                        "flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden",
+                        settings.aspectRatio === f.id
+                          ? "bg-[#FFD700] border-[#FFD700] text-[#050505] shadow-[0_0_20px_rgba(255,215,0,0.3)] scale-105"
+                          : "bg-white/5 border-white/5 text-white/50 hover:border-white/20",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "border-2 rounded transition-all group-hover:scale-110",
+                          f.css,
+                          settings.aspectRatio === f.id
+                            ? "border-[#050505]"
+                            : "border-white/30",
+                        )}
+                      />
+                      <span className="text-[10px] font-black uppercase">
+                        {f.name}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Vibe Selection */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                  2. Vibe Belirle (Tarz)
+                </h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {VIBES.map((v) => (
+                    <button
+                      key={v.id}
+                      // Important: Override all layout/aspect ratios temporarily so vibe doesn't resize app
+                      onClick={() =>
+                        setSettings(
+                          (prev) =>
+                            ({
+                              ...prev,
+                              ...v.settings,
+                              aspectRatio: prev.aspectRatio,
+                            }) as any,
+                        )
+                      }
+                      className={cn(
+                        "p-5 rounded-[20px] border-2 transition-all flex flex-col items-center justify-center gap-2 text-center",
+                        settings.mode === v.settings.mode &&
+                          settings.palette === v.settings.palette
+                          ? "bg-white border-white text-black shadow-lg scale-[1.02]"
+                          : "bg-white/5 border-white/5 text-white/60 hover:bg-white/10",
+                      )}
+                    >
+                      <span className="text-2xl">{v.name.split(" ")[0]}</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider">
+                        {v.name.split(" ").slice(1).join(" ")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Artwork Upload */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                  3. Özel Kapak Görseli (Artwork)
+                </h3>
+                  <label className="flex items-center justify-center w-full h-24 border-2 border-dashed border-[#F27D26]/50 rounded-xl cursor-pointer hover:bg-white/5 transition-colors">
+                    <span className="text-[#FFD700] text-sm">Görsel Yükle (JPG/PNG)</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const imageUrl = URL.createObjectURL(file);
+                        setMetadata(prev => prev ? { ...prev, coverUrl: imageUrl } : { title: '', artist: '', coverUrl: imageUrl });
+                      }
+                    }} />
+                  </label>
+              </div>
+
+              {/* Extras: Metadata Override & Suno Toggle */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                  4. Detaylı Ayarlar
+                </h3>
+                <div className="flex flex-col gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Şarkı İsmi (Override)</label>
+                    <input 
+                      type="text" 
+                      placeholder={metadata?.title || "İsim gir..."}
+                      className="bg-black border border-white/20 p-2 text-sm text-[#E4E3E0] outline-none focus:border-[#F27D26]"
+                      value={settings.customTitle}
+                      onChange={(e) => setSettings(prev => ({ ...prev, customTitle: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Sanatçı (Override)</label>
+                    <input 
+                      type="text" 
+                      placeholder={metadata?.artist || "Sanatçı gir..."}
+                      className="bg-black border border-white/20 p-2 text-sm text-[#E4E3E0] outline-none focus:border-[#F27D26]"
+                      value={settings.customArtist}
+                      onChange={(e) => setSettings(prev => ({ ...prev, customArtist: e.target.value }))}
+                    />
+                  </div>
+                  
+                  <label className="flex items-center gap-3 cursor-pointer mt-2 pt-2 border-t border-white/10">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 accent-[#FFD700] bg-black border-white/20"
+                      checked={settings.showSunoLyrics}
+                      onChange={(e) => setSettings(prev => ({ ...prev, showSunoLyrics: e.target.checked }))}
+                    />
+                    <span className="text-[10px] uppercase tracking-widest text-[#E4E3E0]">Suno Şarkı Sözlerini Kullan</span>
+                  </label>
+
+                  <label className="flex items-center gap-3 cursor-pointer mt-2 pt-2 border-t border-white/10">
+                    <input 
+                      type="checkbox" 
+                      className="w-4 h-4 accent-[#00ff00] bg-black border-white/20"
+                      checked={settings.autoMastering}
+                      onChange={(e) => setSettings(prev => ({ ...prev, autoMastering: e.target.checked }))}
+                    />
+                    <span className="text-[10px] uppercase tracking-widest text-[#E4E3E0]">⚡ Auto-Mastering (Spotify Standard)</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Render Button */}
+              <div className="space-y-4 mt-auto pt-8">
+                <button
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={cn(
+                    "w-full py-6 rounded-3xl text-sm font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all",
+                    isRecording
+                      ? "bg-red-500 text-white animate-pulse"
+                      : "bg-[#FFD700] text-[#050505] hover:bg-white shadow-[0_0_40px_rgba(255,215,0,0.4)] hover:shadow-[0_0_50px_rgba(255,255,255,0.6)] hover:scale-[1.02]",
+                  )}
+                >
+                  {isRecording ? (
+                    <>İPTAL ET VEYA ZORLA BİTİR</>
+                  ) : (
+                    <>
+                      <Download size={20} /> VİDEOYU OLUŞTUR VE İNDİR
+                    </>
+                  )}
+                </button>
+                <p className="text-center text-[10px] uppercase font-bold text-white/30">
+                  İşlem süresi müziğin uzunluğuna göre değişebilir. <br />
+                  Render sırasında sekmeyi kapatmayın.
+                </p>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Right: Studio Controls Pane (Always scrollable) */}
-        <div className="w-full lg:w-[450px] bg-[#0A0A0A] border-l border-white/5 flex flex-col overflow-y-auto custom-scrollbar h-auto lg:h-full">
-          <div className="p-8 pb-32">
-            <AnimatePresence mode="wait">
-              {activeTab === 'visuals' && (
-                <motion.div
-                  key="visuals"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col gap-10"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Visual Mood</label>
-                      <button 
-                        onClick={randomizeVisuals}
-                        className="flex items-center gap-1.5 px-3 py-1 bg-[#F27D26]/10 border border-[#F27D26]/20 rounded-lg text-[9px] font-black text-[#F27D26] uppercase transition-all hover:bg-[#F27D26] hover:text-white group"
-                      >
-                        <RefreshCw size={10} className="group-hover:rotate-180 transition-transform duration-500" /> SURPRISE ME
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { id: 'GLITCH', name: 'Glitch Core', icon: Zap },
-                        { id: 'SIMULATION', name: 'The Eye', icon: Layers },
-                        { id: 'TUNNEL', name: 'Hyper Void', icon: Music },
-                        { id: 'PARTICLES', name: 'Molecular', icon: Layout },
-                        { id: 'RADIAL', name: 'Circular', icon: RefreshCw },
-                        { id: 'SPECTRUM', name: 'Vibrations', icon: Play },
-                      ].map(m => (
-                        <button 
-                          key={m.id}
-                          onClick={() => setSettings(prev => ({ ...prev, mode: m.id as VisualizerMode }))}
-                          className={cn(
-                            "flex flex-col items-center gap-3 p-4 rounded-2xl border transition-all relative overflow-hidden group",
-                            settings.mode === m.id 
-                              ? "bg-white text-black border-white shadow-[0_10px_40px_-10px_rgba(255,255,255,0.3)]" 
-                              : "bg-white/[0.02] border-white/5 text-white/40 hover:border-white/20 hover:text-white"
-                          )}
-                        >
-                          <m.icon size={18} className={cn("transition-all duration-500 group-hover:scale-110", settings.mode === m.id ? "text-black" : "text-[#F27D26]")} />
-                          <span className="text-[9px] font-black uppercase tracking-widest">{m.name}</span>
-                          {settings.mode === m.id && (
-                            <motion.div layoutId="mode-active" className="absolute bottom-0 left-0 right-0 h-1 bg-[#F27D26]" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-white/5">
-                    <button 
-                      onClick={() => setShowAdvanced(!showAdvanced)}
-                      className={cn(
-                        "w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all",
-                        showAdvanced ? "bg-white text-black" : "bg-white/5 text-white/40 hover:bg-white/10"
-                      )}
-                    >
-                      <Zap size={12} className={showAdvanced ? "text-[#F27D26]" : ""} />
-                      {showAdvanced ? 'Hide Lab Controls' : 'Show Lab Controls'}
-                    </button>
-                  </div>
-
-                  {showAdvanced && (
-                    <motion.div 
-                      key="advanced-controls"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="space-y-8"
-                    >
-                      <div className="space-y-4">
-                        <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Color Core</label>
-                        <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar">
-                           {palettes.map(p => (
-                             <button 
-                                key={p.id}
-                                onClick={() => setSettings(prev => ({ ...prev, palette: p.id, primaryColor: p.primary, secondaryColor: p.secondary }))}
-                                className={cn(
-                                  "w-12 h-12 flex-shrink-0 rounded-2xl border-2 transition-all relative overflow-hidden",
-                                  settings.palette === p.id ? "border-white scale-110 rotate-12 z-10" : "border-white/5 opacity-40 hover:opacity-100"
-                                )}
-                             >
-                               <div className="absolute inset-0 bg-gradient-to-br" style={{ backgroundImage: `linear-gradient(135deg, ${p.primary}, ${p.secondary})` }} />
-                             </button>
-                           ))}
-                           <button 
-                             className="w-12 h-12 flex-shrink-0 rounded-2xl border-2 border-white/10 flex items-center justify-center bg-white/5 hover:bg-white/10"
-                             onClick={() => setSettings(prev => ({ ...prev, palette: 'CUSTOM' }))}
-                           >
-                             <Sliders size={14} className="text-white/40" />
-                           </button>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-6 bg-white/[0.02] p-6 rounded-3xl border border-white/5">
-                        <label className="text-[10px] font-black text-[#F27D26] uppercase tracking-[0.2em] mb-2 block">Engine Tuning</label>
-                        {[
-                          { label: 'Energy', key: 'intensity', min: 0, max: 2, step: 0.01 },
-                          { label: 'Color Glitch', key: 'colorDistortion', min: 0, max: 2, step: 0.01 },
-                          { label: 'Distortion', key: 'displacement', min: 0, max: 2, step: 0.01 },
-                          { label: 'Bloom', key: 'bloom', min: 0, max: 1, step: 0.01 },
-                          { label: 'RGB Split', key: 'rgbSplit', min: 0, max: 1, step: 0.01 },
-                          { label: 'Beat Sync Strength', key: 'intensity', min: 0, max: 2, step: 0.01 },
-                        ].map(param => (
-                          <div key={param.label} className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-[10px] font-bold opacity-30 uppercase tracking-tighter">{param.label}</span>
-                              <span className="text-[10px] font-mono text-[#F27D26]">{(settings[param.key as keyof VisualizerSettings] as number).toFixed(2)}</span>
-                            </div>
-                            <input 
-                              type="range" min={param.min} max={param.max} step={param.step}
-                              value={settings[param.key as keyof VisualizerSettings] as number}
-                              onChange={(e) => setSettings(prev => ({ ...prev, [param.key]: parseFloat(e.target.value) }))}
-                              className="w-full accent-[#F27D26] h-1 bg-white/10 rounded-full appearance-none cursor-pointer"
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-      <div className="space-y-4">
-        <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Vibe Presets</label>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { id: 'trap', name: '🔥 Dark Trap', settings: { mode: 'GLITCH', palette: 'BRUTALIST', intensity: 1.6, rgbSplit: 0.8, pixelSorting: 0.5, chromaticAberration: 0.4, primaryColor: '#FFD700', secondaryColor: '#1A1A1A' } },
-            { id: 'simulation', name: '👁️ Simulation', settings: { mode: 'SIMULATION', palette: 'MONO', intensity: 1.0, bloom: 0.8, scanLines: 0.6, primaryColor: '#ffffff', secondaryColor: '#000000' } },
-            { id: 'lofi', name: '🌌 Chill Lofi', settings: { mode: 'RADIAL', palette: 'SUNSET', intensity: 0.6, bloom: 0.4, vignette: 0.8, scanLines: 0.1, primaryColor: '#ff4e50', secondaryColor: '#f9d423' } },
-            { id: 'neon', name: '⚡ Cyberpunk', settings: { mode: 'TUNNEL', palette: 'NEON', intensity: 1.3, bloom: 0.9, rgbSplit: 0.6, pixelSorting: 0.2, primaryColor: '#00ffcc', secondaryColor: '#ff00ff' } }
-          ].map(t => (
-            <button 
-              key={t.id}
-              onClick={() => setSettings(prev => ({ ...prev, ...t.settings }))}
-              className="px-4 py-5 bg-white/[0.03] border border-white/5 rounded-[24px] text-[10px] font-black uppercase hover:bg-white text-white hover:text-black transition-all hover:scale-[1.02] shadow-sm flex flex-col items-center gap-2"
-            >
-              <span className="text-lg">{t.name.split(' ')[0]}</span>
-              <span>{t.name.split(' ').slice(1).join(' ')}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Saved</label>
-          <button onClick={savePreset} className="text-[10px] font-black text-[#F27D26] uppercase border-b border-[#F27D26]">+ New</button>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-          {presets.map(p => (
-            <button 
-              key={p.id}
-              onClick={() => loadPreset(p)}
-              className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[9px] font-bold uppercase hover:border-[#F27D26]/50"
-            >
-              {p.name}
-            </button>
-          ))}
-        </div>
-      </div>
-                    </motion.div>
-                  )}
-
-                  <div className="space-y-4 pt-6 border-t border-white/5">
-                    <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Media Asset Override</label>
-                    <label className="flex items-center gap-3 p-6 border-2 border-dashed border-white/5 rounded-2xl cursor-pointer hover:border-[#F27D26]/30 transition-all bg-white/[0.02]">
-                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
-                        <Layout size={18} className="text-[#F27D26]" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold uppercase">Replace Artwork</span>
-                        <span className="text-[10px] opacity-30 uppercase">JPG/PNG SOURCE</span>
-                      </div>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                    </label>
-                  </div>
-                </motion.div>
-              )}
-
-              {activeTab === 'text' && (
-                <motion.div
-                  key="text"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col gap-10"
-                >
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Kinetic Typography</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['CLASSIC', 'BOUNCE', 'GLITCH', 'STAGGER'] as any[]).map(t => (
-                        <button 
-                          key={t}
-                          onClick={() => setSettings(prev => ({ ...prev, typographyStyle: t }))}
-                          className={cn(
-                            "px-4 py-3 rounded-xl text-[10px] font-bold uppercase transition-all border border-white/5",
-                            settings.typographyStyle === t ? "bg-white text-black shadow-lg" : "bg-white/[0.03] text-white/40 hover:text-white"
-                          )}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Track Identity</label>
-                      <input 
-                        type="checkbox" checked={settings.showTitle}
-                        onChange={(e) => setSettings(prev => ({ ...prev, showTitle: e.target.checked }))}
-                        className="w-4 h-4 rounded-md accent-[#F27D26]"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <input 
-                        type="text" placeholder="Title..." value={settings.customTitle}
-                        onChange={(e) => setSettings(prev => ({ ...prev, customTitle: e.target.value }))}
-                        className="bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F27D26]/50"
-                      />
-                      <select 
-                        value={settings.titleFont}
-                        onChange={(e) => setSettings(prev => ({ ...prev, titleFont: e.target.value }))}
-                        className="bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-xs focus:outline-none"
-                      >
-                        {fonts.map(f => <option key={f} value={f} className="bg-black">{f}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6 pt-6 border-t border-white/5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Artist Branding</label>
-                      <input 
-                        type="checkbox" checked={settings.showArtist}
-                        onChange={(e) => setSettings(prev => ({ ...prev, showArtist: e.target.checked }))}
-                        className="w-4 h-4 rounded-md accent-[#F27D26]"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-3">
-                      <input 
-                        type="text" placeholder="Artist..." value={settings.customArtist}
-                        onChange={(e) => setSettings(prev => ({ ...prev, customArtist: e.target.value }))}
-                        className="bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F27D26]/50"
-                      />
-                      <select 
-                        value={settings.artistFont}
-                        onChange={(e) => setSettings(prev => ({ ...prev, artistFont: e.target.value }))}
-                        className="bg-white/5 border border-white/5 rounded-xl px-4 py-3 text-xs focus:outline-none"
-                      >
-                        {fonts.map(f => <option key={f} value={f} className="bg-black">{f}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-                  {activeTab === 'lyrics' && (
-                <motion.div
-                  key="lyrics"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col gap-8"
-                >
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Lyrics Engine</label>
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={() => setIsEditingLyrics(!isEditingLyrics)}
-                        className={cn(
-                          "px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-all",
-                          isEditingLyrics ? "bg-[#F27D26] text-black" : "bg-white/5 text-white/40 border border-white/10"
-                        )}
-                      >
-                        {isEditingLyrics ? 'SAVE EDITS' : 'EDIT MODE'}
-                      </button>
-                      <input 
-                        type="checkbox" checked={settings.showLyrics}
-                        onChange={(e) => setSettings(prev => ({ ...prev, showLyrics: e.target.checked }))}
-                        className="w-4 h-4 accent-[#F27D26]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                     <label className="text-[10px] font-bold text-white/20 uppercase tracking-[0.2em]">Presence Styling</label>
-                     <div className="grid grid-cols-2 gap-4">
-                        {[
-                          { label: 'Past Opacity', key: 'lyricsPastOpacity' },
-                          { label: 'Future Opacity', key: 'lyricsFutureOpacity' },
-                          { label: 'Blur Depth', key: 'lyricsBlur' },
-                        ].map((s) => (
-                          <div key={s.key} className="space-y-2">
-                            <span className="text-[8px] font-bold opacity-30 uppercase">{s.label}</span>
-                            <input 
-                              type="range" min="0" max="1" step="0.01"
-                              value={settings[s.key as keyof VisualizerSettings] as number}
-                              onChange={(e) => setSettings(prev => ({ ...prev, [s.key]: parseFloat(e.target.value) }))}
-                              className="w-full h-1 accent-[#F27D26] bg-white/5 rounded-full appearance-none"
-                            />
-                          </div>
-                        ))}
-                     </div>
-                  </div>
-
-                  {!isEditingLyrics ? (
-                    <textarea 
-                      value={settings.customLyrics}
-                      onChange={(e) => setSettings(prev => ({ ...prev, customLyrics: e.target.value }))}
-                      placeholder="Paste lines here..."
-                      className="w-full min-h-[200px] bg-white/[0.02] border border-white/5 rounded-2xl p-6 text-sm font-serif leading-relaxed text-white/80 focus:outline-none focus:border-[#F27D26]/30 overflow-y-auto custom-scrollbar italic resize-none"
-                    />
-                  ) : (
-                    <div className="bg-[#F27D26]/5 rounded-2xl p-4 border border-[#F27D26]/20">
-                      <p className="text-[9px] font-mono text-[#F27D26] uppercase mb-4 opacity-60">Visualizing sync metadata...</p>
-                      <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                        {settings.syncedLyrics.map((line, lIdx) => (
-                          <div key={lIdx} className="p-3 bg-black/40 rounded-xl border border-white/5 space-y-2 group">
-                            <div className="flex items-center gap-2">
-                              <input 
-                                type="number" step="0.1"
-                                value={line.startTime}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value);
-                                  setSettings(prev => {
-                                    const next = [...prev.syncedLyrics];
-                                    next[lIdx] = { ...next[lIdx], startTime: val };
-                                    return { ...prev, syncedLyrics: next };
-                                  });
-                                }}
-                                className="w-12 bg-white/5 text-[9px] font-mono text-[#F27D26] p-1 rounded"
-                              />
-                              <input 
-                                value={line.text}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setSettings(prev => {
-                                    const next = [...prev.syncedLyrics];
-                                    next[lIdx] = { ...next[lIdx], text: val };
-                                    return { ...prev, syncedLyrics: next };
-                                  });
-                                }}
-                                className="flex-1 bg-transparent text-xs text-white/80 outline-none"
-                              />
-                            </div>
-                            <div className="flex flex-wrap gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {line.words.map((word, wIdx) => (
-                                <div key={wIdx} className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded text-[8px]">
-                                  <span className="opacity-40">{word.word}</span>
-                                  <input 
-                                    type="number" step="0.05"
-                                    value={word.startTime}
-                                    onChange={(e) => {
-                                      const val = parseFloat(e.target.value);
-                                      setSettings(prev => {
-                                        const next = [...prev.syncedLyrics];
-                                        const newWords = [...next[lIdx].words];
-                                        newWords[wIdx] = { ...newWords[wIdx], startTime: val };
-                                        next[lIdx] = { ...next[lIdx], words: newWords };
-                                        return { ...prev, syncedLyrics: next };
-                                      });
-                                    }}
-                                    className="w-8 bg-transparent text-[#F27D26] outline-none"
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em] flex items-center gap-2">
-                        <Zap size={10} /> Beat-Reaction Engine
-                      </label>
-                      <input 
-                        type="checkbox" checked={settings.beatSync}
-                        onChange={(e) => setSettings(prev => ({ ...prev, beatSync: e.target.checked }))}
-                        className="w-4 h-4 accent-[#F27D26]"
-                      />
-                    </div>
-                  </div>
-
-                  {settings.syncedLyrics.length > 0 && (
-                    <div className="space-y-3">
-                      <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em] flex justify-between">
-                        Synced Timeline
-                        <button 
-                          onClick={() => {
-                            const text = settings.syncedLyrics.map(l => `[${formatTime(l.startTime)}] ${l.text}`).join('\n');
-                            const blob = new Blob([text], { type: 'text/plain' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `lyrics_${metadata?.title || 'synced'}.txt`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                          className="hover:text-white"
-                        >
-                          Export TXT
-                        </button>
-                      </label>
-                      <div className="space-y-1 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                        {settings.syncedLyrics.map((line, idx) => (
-                          <div key={idx} className="flex gap-3 bg-white/5 p-2 rounded-lg group">
-                            <span className="text-[9px] font-mono text-[#F27D26] whitespace-nowrap mt-1">{formatTime(line.startTime)}</span>
-                            <input 
-                              value={line.text}
-                              onChange={(e) => {
-                                const newText = e.target.value;
-                                setSettings(prev => {
-                                  const lyrics = [...prev.syncedLyrics];
-                                  lyrics[idx] = { ...lyrics[idx], text: newText };
-                                  return { ...prev, syncedLyrics: lyrics };
-                                });
-                              }}
-                              className="bg-transparent border-none text-[11px] outline-none flex-1 leading-normal text-white"
-                            />
-                            <div className="flex flex-col opacity-0 group-hover:opacity-100 gap-1">
-                              <button 
-                                onClick={() => {
-                                  if (idx === 0) return;
-                                  setSettings(prev => {
-                                    const next = [...prev.syncedLyrics];
-                                    [next[idx-1], next[idx]] = [next[idx], next[idx-1]];
-                                    return { ...prev, syncedLyrics: next };
-                                  });
-                                }} 
-                                className="hover:text-[#F27D26] disabled:opacity-20"
-                                disabled={idx === 0}
-                              >
-                                <ArrowUp size={10} />
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if (idx === settings.syncedLyrics.length - 1) return;
-                                  setSettings(prev => {
-                                    const next = [...prev.syncedLyrics];
-                                    [next[idx+1], next[idx]] = [next[idx], next[idx+1]];
-                                    return { ...prev, syncedLyrics: next };
-                                  });
-                                }} 
-                                className="hover:text-[#F27D26] disabled:opacity-20"
-                                disabled={idx === settings.syncedLyrics.length - 1}
-                              >
-                                <ArrowDown size={10} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-4 relative">
-                    <AnimatePresence>
-                      {isSyncing && (
-                        <motion.div 
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="absolute inset-0 z-10 bg-black/80 backdrop-blur-sm rounded-xl flex flex-col items-center justify-center gap-3 border border-[#F27D26]/30"
-                        >
-                          <RefreshCw className="w-6 h-6 animate-spin text-[#F27D26]" />
-                          <div className="flex flex-col items-center">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#F27D26]">AI Processing</span>
-                            <span className="text-[8px] opacity-40 uppercase tracking-widest font-mono text-center px-4">Analyzing audio transients and linguistic patterns...</span>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <div className="flex flex-col gap-4 w-full">
-                      <button 
-                        onClick={handleAutoSync}
-                        disabled={isSyncing || !audioFile}
-                        className={cn(
-                          "w-full py-4 rounded-xl text-xs font-black uppercase flex items-center justify-center gap-3 transition-all",
-                          audioFile && !isSyncing 
-                            ? "bg-[#F27D26] text-black hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_30px_rgba(242,125,38,0.2)]" 
-                            : "bg-white/5 text-white/20 cursor-not-allowed"
-                        )}
-                      >
-                        <Zap className="w-4 h-4" />
-                        One-Click Magic Sync
-                      </button>
-                      <p className="text-[9px] text-white/30 uppercase tracking-widest font-mono text-center">
-                        AI will align text with music and link visual energy to the lyrics display.
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => setSettings(prev => ({ ...prev, customLyrics: '', syncedLyrics: [] }))}
-                      className="px-6 py-4 bg-white/5 text-white/40 font-mono uppercase text-[10px] tracking-widest rounded-xl hover:bg-white/10 transition-colors"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
+        )}
       </main>
-
-      <audio ref={audioRef} src={audioUrl || undefined} className="hidden" />
     </div>
   );
-}
-
-function formatTime(seconds: number) {
-  if (isNaN(seconds)) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
