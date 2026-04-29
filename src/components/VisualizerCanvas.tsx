@@ -98,6 +98,7 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
 
       engineRef.current = { renderer, processor, visualizers };
       renderer.setCoverImage(coverUrl || null);
+      renderer.setLogoImage(settings.logoUrl || null);
 
     } catch (err) {
       console.error("Critical Visualizer Initialization Error:", err);
@@ -109,15 +110,16 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
     };
   }, [analyserRef?.current]);
 
-  // Handle Dynamic Logic Updates (Mode, Cover)
+  // Handle Dynamic Logic Updates (Mode, Cover, Logo)
   useEffect(() => {
     const { renderer, visualizers } = engineRef.current;
     if (renderer) {
       const active = visualizers.get(settings.mode) || visualizers.get('GLITCH');
       if (active) renderer.setVisualizer(active);
       renderer.setCoverImage(coverUrl || null);
+      renderer.setLogoImage(settings.logoUrl || null);
     }
-  }, [settings.mode, coverUrl]);
+  }, [settings.mode, coverUrl, settings.logoUrl]);
 
   // Main Event Loop
   useEffect(() => {

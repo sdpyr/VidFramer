@@ -568,11 +568,73 @@ export default function App() {
             </label>
           </div>
         ) : (
-          // VISUALIZER & CONTROLS UI
-          <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-8 lg:gap-12">
-            {/* Left: Canvas Area */}
-            <div className="flex-1 flex flex-col items-center gap-6">
-              <div className="relative w-full max-w-3xl flex justify-center bg-black rounded-3xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden group">
+          // 3-PANEL INDUSTRIAL LAYOUT
+          <div className="w-full max-w-[1600px] grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            {/* LEFT PANEL: Asset Management */}
+            <div className="lg:col-span-3 flex flex-col gap-6 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-6 shadow-2xl">
+              <h2 className="text-xl font-black uppercase tracking-widest text-[#E4E3E0] mb-4 border-b border-[#1a1a1a] pb-4">Assets</h2>
+              
+              {/* Cover Artwork Upload */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-[#FFD700] uppercase tracking-widest">Kapak Görseli (Artwork)</label>
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#1a1a1a] bg-[#111] rounded-xl cursor-pointer hover:bg-[#1a1a1a] hover:border-[#FFD700] transition-colors group">
+                  <Upload className="w-6 h-6 text-white/30 group-hover:text-[#FFD700] mb-2" />
+                  <span className="text-white/50 text-xs font-mono uppercase">Yükle (JPG/PNG)</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const imageUrl = URL.createObjectURL(file);
+                      setMetadata(prev => prev ? { ...prev, coverUrl: imageUrl } : { title: '', artist: '', coverUrl: imageUrl });
+                    }
+                  }} />
+                </label>
+              </div>
+
+              {/* Logo Upload */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-[#FFD700] uppercase tracking-widest">Center Logo (Glow)</label>
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-[#1a1a1a] bg-[#111] rounded-xl cursor-pointer hover:bg-[#1a1a1a] hover:border-[#FFD700] transition-colors group">
+                  <Monitor className="w-6 h-6 text-white/30 group-hover:text-[#FFD700] mb-2" />
+                  <span className="text-white/50 text-xs font-mono uppercase">Logo Yükle (Saydam PNG)</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const imageUrl = URL.createObjectURL(file);
+                      setSettings(prev => ({ ...prev, logoUrl: imageUrl }));
+                    }
+                  }} />
+                </label>
+              </div>
+
+              {/* Extras: Metadata Override */}
+              <div className="space-y-4 pt-4 border-t border-[#1a1a1a]">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Şarkı İsmi (Override)</label>
+                    <input 
+                      type="text" 
+                      placeholder={metadata?.title || "İsim gir..."}
+                      className="bg-black border border-white/10 p-3 text-sm text-[#E4E3E0] outline-none focus:border-[#FFD700] rounded-lg font-mono placeholder:text-white/20"
+                      value={settings.customTitle}
+                      onChange={(e) => setSettings(prev => ({ ...prev, customTitle: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Sanatçı (Override)</label>
+                    <input 
+                      type="text" 
+                      placeholder={metadata?.artist || "Sanatçı gir..."}
+                      className="bg-black border border-white/10 p-3 text-sm text-[#E4E3E0] outline-none focus:border-[#FFD700] rounded-lg font-mono placeholder:text-white/20"
+                      value={settings.customArtist}
+                      onChange={(e) => setSettings(prev => ({ ...prev, customArtist: e.target.value }))}
+                    />
+                  </div>
+              </div>
+            </div>
+
+            {/* CENTER PANEL: Viewport & Transport */}
+            <div className="lg:col-span-6 flex flex-col items-center gap-6">
+              <div className="relative w-full flex justify-center bg-[#000] rounded-[32px] border border-[#222] shadow-[0_0_80px_rgba(0,0,0,1)] overflow-hidden group">
                 <VisualizerCanvas
                   ref={canvasHandleRef}
                   audioRef={audioRef}
@@ -589,7 +651,7 @@ export default function App() {
                   onClick={togglePlay}
                   className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
-                  <div className="w-24 h-24 bg-[#FFD700] rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,215,0,0.5)] hover:scale-110 active:scale-95 transition-all text-[#050505]">
+                  <div className="w-24 h-24 bg-[#FFD700] rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(255,215,0,0.4)] hover:scale-110 active:scale-95 transition-all text-[#050505]">
                     {isPlaying ? (
                       <Pause size={40} fill="currentColor" />
                     ) : (
@@ -599,14 +661,14 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Playback Controls & Progress Bar */}
-              <div className="w-full max-w-3xl bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
+              {/* Transport Controls */}
+              <div className="w-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-6">
                 <div className="flex flex-col gap-4">
                   {/* Export Progress View */}
                   {isRecording && (
                     <div className="w-full bg-[#FFD700]/10 p-4 rounded-xl border border-[#FFD700]/20 flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="w-3 h-3 bg-[#FFD700] rounded-full animate-ping" />
+                         <div className="w-3 h-3 bg-[#FFD700] rounded-full animate-ping" />
                         <span className="text-sm font-black text-[#FFD700] uppercase tracking-wider">
                           {renderStep}
                         </span>
@@ -618,7 +680,7 @@ export default function App() {
                   )}
 
                   <div
-                    className="h-3 w-full bg-black/50 rounded-full overflow-hidden cursor-pointer relative"
+                    className="h-4 w-full bg-black rounded-full overflow-hidden cursor-pointer relative border border-white/5"
                     onClick={(e) => {
                       if (isRecording) return;
                       const rect = e.currentTarget.getBoundingClientRect();
@@ -637,13 +699,13 @@ export default function App() {
                     />
                   </div>
 
-                  <div className="flex justify-between items-center text-xs font-mono font-bold opacity-50">
+                  <div className="flex justify-between items-center text-xs font-mono font-bold text-white/50">
                     <span>
                       {audioRef.current
                         ? formatTime(audioRef.current.currentTime)
                         : "00:00"}
                     </span>
-                    <div className="text-center truncate max-w-[200px] uppercase">
+                    <div className="text-center truncate max-w-[200px] uppercase tracking-widest text-[#FFD700]">
                       {metadata?.title || "Unknown Track"}
                     </div>
                     <span>
@@ -656,14 +718,15 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Zero Thought Controls */}
-            <div className="w-full lg:w-[400px] flex flex-col gap-8">
+            {/* RIGHT PANEL: Inspector */}
+            <div className="lg:col-span-3 flex flex-col gap-6 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-6 shadow-2xl">
+              <h2 className="text-xl font-black uppercase tracking-widest text-[#E4E3E0] m-0 border-b border-[#1a1a1a] pb-4">Inspector</h2>
               {/* Aspect Ratio Picker */}
               <div className="space-y-4">
-                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                <h3 className="text-xs font-black text-white/50 uppercase tracking-widest">
                   1. Format Seç (Sosyal Medya)
                 </h3>
-                <div className="flex gap-3">
+                <div className="flex gap-2">
                   {FORMATS.map((f) => (
                     <button
                       key={f.id}
@@ -674,10 +737,10 @@ export default function App() {
                         }))
                       }
                       className={cn(
-                        "flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden",
+                        "flex-1 py-4 rounded-xl border transition-all flex flex-col items-center gap-2 group",
                         settings.aspectRatio === f.id
-                          ? "bg-[#FFD700] border-[#FFD700] text-[#050505] shadow-[0_0_20px_rgba(255,215,0,0.3)] scale-105"
-                          : "bg-white/5 border-white/5 text-white/50 hover:border-white/20",
+                          ? "bg-[#FFD700] border-[#FFD700] text-[#050505]"
+                          : "bg-[#111] border-[#222] text-white/50 hover:border-white/20 hover:text-white",
                       )}
                     >
                       <div
@@ -686,10 +749,10 @@ export default function App() {
                           f.css,
                           settings.aspectRatio === f.id
                             ? "border-[#050505]"
-                            : "border-white/30",
+                            : "border-white/30 group-hover:border-white",
                         )}
                       />
-                      <span className="text-[10px] font-black uppercase">
+                      <span className="text-[9px] font-black uppercase">
                         {f.name}
                       </span>
                     </button>
@@ -699,14 +762,13 @@ export default function App() {
 
               {/* Vibe Selection */}
               <div className="space-y-4">
-                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
+                <h3 className="text-xs font-black text-white/50 uppercase tracking-widest">
                   2. Vibe Belirle (Tarz)
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2">
                   {VIBES.map((v) => (
                     <button
                       key={v.id}
-                      // Important: Override all layout/aspect ratios temporarily so vibe doesn't resize app
                       onClick={() =>
                         setSettings(
                           (prev) =>
@@ -718,15 +780,15 @@ export default function App() {
                         )
                       }
                       className={cn(
-                        "p-5 rounded-[20px] border-2 transition-all flex flex-col items-center justify-center gap-2 text-center",
+                        "p-4 rounded-xl border transition-all flex flex-col items-center justify-center gap-1 text-center",
                         settings.mode === v.settings.mode &&
                           settings.palette === v.settings.palette
-                          ? "bg-white border-white text-black shadow-lg scale-[1.02]"
-                          : "bg-white/5 border-white/5 text-white/60 hover:bg-white/10",
+                          ? "bg-white border-white text-black"
+                          : "bg-[#111] border-[#222] text-white/50 hover:bg-[#222]",
                       )}
                     >
-                      <span className="text-2xl">{v.name.split(" ")[0]}</span>
-                      <span className="text-[10px] font-black uppercase tracking-wider">
+                      <span className="text-xl">{v.name.split(" ")[0]}</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest mt-1">
                         {v.name.split(" ").slice(1).join(" ")}
                       </span>
                     </button>
@@ -734,78 +796,46 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Artwork Upload */}
+              {/* Toggles */}
               <div className="space-y-4">
-                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
-                  3. Özel Kapak Görseli (Artwork)
+                <h3 className="text-xs font-black text-white/50 uppercase tracking-widest">
+                  3. Mastering & Logic
                 </h3>
-                  <label className="flex items-center justify-center w-full h-24 border-2 border-dashed border-[#F27D26]/50 rounded-xl cursor-pointer hover:bg-white/5 transition-colors">
-                    <span className="text-[#FFD700] text-sm">Görsel Yükle (JPG/PNG)</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const imageUrl = URL.createObjectURL(file);
-                        setMetadata(prev => prev ? { ...prev, coverUrl: imageUrl } : { title: '', artist: '', coverUrl: imageUrl });
-                      }
-                    }} />
-                  </label>
-              </div>
-
-              {/* Extras: Metadata Override & Suno Toggle */}
-              <div className="space-y-4">
-                <h3 className="text-xs font-black text-[#FFD700] uppercase tracking-widest border-b border-white/10 pb-2">
-                  4. Detaylı Ayarlar
-                </h3>
-                <div className="flex flex-col gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Şarkı İsmi (Override)</label>
-                    <input 
-                      type="text" 
-                      placeholder={metadata?.title || "İsim gir..."}
-                      className="bg-black border border-white/20 p-2 text-sm text-[#E4E3E0] outline-none focus:border-[#F27D26]"
-                      value={settings.customTitle}
-                      onChange={(e) => setSettings(prev => ({ ...prev, customTitle: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] uppercase tracking-widest text-[#FFD700]">Sanatçı (Override)</label>
-                    <input 
-                      type="text" 
-                      placeholder={metadata?.artist || "Sanatçı gir..."}
-                      className="bg-black border border-white/20 p-2 text-sm text-[#E4E3E0] outline-none focus:border-[#F27D26]"
-                      value={settings.customArtist}
-                      onChange={(e) => setSettings(prev => ({ ...prev, customArtist: e.target.value }))}
-                    />
-                  </div>
-                  
-                  <label className="flex items-center gap-3 cursor-pointer mt-2 pt-2 border-t border-white/10">
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <div className={cn("w-5 h-5 rounded border flex items-center justify-center transition-colors", settings.showSunoLyrics ? "bg-[#FFD700] border-[#FFD700]" : "bg-[#111] border-[#333] group-hover:border-[#FFD700]")}>
+                      {settings.showSunoLyrics && <div className="w-2.5 h-2.5 bg-black rounded-sm" />}
+                    </div>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-[#FFD700] bg-black border-white/20"
+                      className="hidden"
                       checked={settings.showSunoLyrics}
                       onChange={(e) => setSettings(prev => ({ ...prev, showSunoLyrics: e.target.checked }))}
                     />
-                    <span className="text-[10px] uppercase tracking-widest text-[#E4E3E0]">Suno Şarkı Sözlerini Kullan</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#E4E3E0] group-hover:text-white transition-colors">Suno Sözlerini Kullan</span>
                   </label>
 
-                  <label className="flex items-center gap-3 cursor-pointer mt-2 pt-2 border-t border-white/10">
+                  <label className="flex items-center gap-3 cursor-pointer group">
+                    <div className={cn("w-5 h-5 rounded border flex items-center justify-center transition-colors", settings.autoMastering ? "bg-[#00ff00] border-[#00ff00]" : "bg-[#111] border-[#333] group-hover:border-[#00ff00]")}>
+                      {settings.autoMastering && <div className="w-2.5 h-2.5 bg-black rounded-sm" />}
+                    </div>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 accent-[#00ff00] bg-black border-white/20"
+                      className="hidden"
                       checked={settings.autoMastering}
                       onChange={(e) => setSettings(prev => ({ ...prev, autoMastering: e.target.checked }))}
                     />
-                    <span className="text-[10px] uppercase tracking-widest text-[#E4E3E0]">⚡ Auto-Mastering (Spotify Standard)</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#E4E3E0] group-hover:text-white transition-colors">⚡ Auto-Mastering (Spotify)</span>
                   </label>
                 </div>
               </div>
 
               {/* Render Button */}
-              <div className="space-y-4 mt-auto pt-8">
+              <div className="space-y-4 mt-auto pt-4 border-t border-[#1a1a1a]">
                 <button
                   onClick={isRecording ? stopRecording : startRecording}
                   className={cn(
-                    "w-full py-6 rounded-3xl text-sm font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all",
+                    "w-full py-5 rounded-xl text-sm font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all",
                     isRecording
                       ? "bg-red-500 text-white animate-pulse"
                       : "bg-[#FFD700] text-[#050505] hover:bg-white shadow-[0_0_40px_rgba(255,215,0,0.4)] hover:shadow-[0_0_50px_rgba(255,255,255,0.6)] hover:scale-[1.02]",
@@ -815,14 +845,10 @@ export default function App() {
                     <>İPTAL ET VEYA ZORLA BİTİR</>
                   ) : (
                     <>
-                      <Download size={20} /> VİDEOYU OLUŞTUR VE İNDİR
+                      <Download size={20} /> VİDEOYU İNDİR
                     </>
                   )}
                 </button>
-                <p className="text-center text-[10px] uppercase font-bold text-white/30">
-                  İşlem süresi müziğin uzunluğuna göre değişebilir. <br />
-                  Render sırasında sekmeyi kapatmayın.
-                </p>
               </div>
             </div>
           </div>

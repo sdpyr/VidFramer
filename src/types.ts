@@ -49,6 +49,7 @@ export interface VisualizerSettings {
   showLyrics: boolean;
   showSunoLyrics: boolean;
   autoMastering: boolean;
+  logoUrl?: string | null;
   customTitle: string;
   customArtist: string;
   customLyrics: string;
@@ -99,6 +100,7 @@ export interface RenderContext {
   audio: AudioEvents;
   metadata: MusicMetadata | null;
   coverImage?: HTMLImageElement | null;
+  logoImage?: HTMLImageElement | null;
 }
 
 export interface IVisualizer {

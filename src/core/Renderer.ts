@@ -6,6 +6,7 @@ export class GlitchRenderer {
   private visualizer: IVisualizer | null = null;
   private lastTime: number = 0;
   private coverImage: HTMLImageElement | null = null;
+  private logoImage: HTMLImageElement | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -27,6 +28,17 @@ export class GlitchRenderer {
     img.src = url;
   }
 
+  public setLogoImage(url: string | null) {
+    if (!url) {
+      this.logoImage = null;
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { this.logoImage = img; };
+    img.src = url;
+  }
+
   public render(audio: AudioEvents, settings: VisualizerSettings, metadata: MusicMetadata | null) {
     const { width, height } = this.canvas;
     const ctx = this.ctx;
@@ -42,7 +54,8 @@ export class GlitchRenderer {
       settings,
       audio,
       metadata,
-      coverImage: this.coverImage
+      coverImage: this.coverImage,
+      logoImage: this.logoImage
     };
 
     // 2. Draw Main Visualizer Layer
@@ -58,12 +71,39 @@ export class GlitchRenderer {
     if (settings.showLyrics && settings.syncedLyrics && settings.syncedLyrics.length > 0 && settings.mode !== 'KINETIC_TYPO') {
       this.renderLyrics(context);
     }
+    
+    // 4.5. Draw Logo
+    this.drawLogo(context);
 
     // 5. Draw Post-Process Effects (Scanlines, Vignette)
     this.applyPostEffects(context);
 
     // 6. Draw Branding
-    this.drawBranding(ctx, width, height);
+    // this.drawBranding(ctx, width, height);
+  }
+
+  private drawLogo(context: RenderContext) {
+    if (!context.logoImage) return;
+    const { ctx, width, height, audio, settings } = context;
+    
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    
+    // Yavaşça dönsün, kick/bass ile hafif tepki versin
+    ctx.rotate((audio.time * 0.1) + (audio.energy * 0.05));
+    
+    // Başlangıç boyutu ve sese göre büyüme
+    const baseSize = Math.min(width, height) * 0.3; // Ekranın %30'u kadar
+    const size = baseSize + (audio.bassEnergy * baseSize * 0.2); // Bass ile %20 büyür
+    
+    // Merkezde Parlama (Glow)
+    ctx.shadowBlur = 30 + (audio.kick * 40);
+    ctx.shadowColor = settings.primaryColor;
+    
+    // Resmi merkeze çiz
+    ctx.drawImage(context.logoImage, -size / 2, -size / 2, size, size);
+    
+    ctx.restore();
   }
 
   private drawBranding(ctx: CanvasRenderingContext2D, width: number, height: number) {
