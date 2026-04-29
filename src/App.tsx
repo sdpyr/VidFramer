@@ -22,6 +22,7 @@ export default function App() {
   const [customCover, setCustomCover] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [renderStep, setRenderStep] = useState<string>('');
   const [presets, setPresets] = useState<VisualizerPreset[]>([]);
   
   const [settings, setSettings] = useState<VisualizerSettings>({
@@ -68,10 +69,11 @@ export default function App() {
     { id: 'SUNSET', name: 'Deep Sunset', primary: '#ff4e50', secondary: '#f9d423' },
     { id: 'CYBER', name: 'Cyberpunk', primary: '#ffff00', secondary: '#0000ff' },
     { id: 'MONO', name: 'Noir', primary: '#ffffff', secondary: '#333333' },
+    { id: 'BRUTALIST', name: 'Industrial', primary: '#FFD700', secondary: '#1A1A1A' },
   ];
 
   const randomizeVisuals = () => {
-    const modes: VisualizerMode[] = ['GLITCH', 'WAVEFORM', 'SPECTRUM', 'RADIAL', 'PARTICLES', 'TUNNEL'];
+    const modes: VisualizerMode[] = ['GLITCH', 'WAVEFORM', 'SPECTRUM', 'RADIAL', 'PARTICLES', 'TUNNEL', 'SIMULATION'];
     const typos: any[] = ['CLASSIC', 'BOUNCE', 'GLITCH', 'STAGGER'];
     
     setSettings(prev => ({
@@ -249,7 +251,14 @@ export default function App() {
       if (e.data.size > 0) chunks.push(e.data);
     };
     
+    setRenderStep('Analyzing audio context...');
+    
+    recorder.onstart = () => {
+        setRenderStep('Recording frames... (Stay in this tab)');
+    };
+    
     recorder.onstop = () => {
+      setRenderStep('Packaging video file...');
       const blob = new Blob(chunks, { type: 'video/webm' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -262,12 +271,14 @@ export default function App() {
       URL.revokeObjectURL(url);
       
       setIsRecording(false);
+      setRenderStep('');
       if (audioRef.current) audioRef.current.pause();
       setIsPlaying(false);
     };
 
     // Auto-stop when audio reaches end
     const onEnded = () => {
+      setRenderStep('Finalizing render...');
       if (recorder.state === 'recording') {
         recorder.stop();
       }
@@ -381,12 +392,38 @@ export default function App() {
             />
             
             {!audioFile && (
-              <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl border-2 border-dashed border-white/10 hover:border-[#F27D26]/50 cursor-pointer transition-all group">
-                <Upload className="w-16 h-16 mb-4 opacity-20 group-hover:opacity-100 group-hover:text-[#F27D26] transition-all" />
-                <p className="text-sm font-bold opacity-40 uppercase tracking-widest text-center px-12 group-hover:opacity-100">Click to import track</p>
+              <label className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl rounded-[40px] border-4 border-dashed border-white/5 hover:border-[#F27D26]/50 cursor-pointer transition-all group p-12">
+                <div className="w-24 h-24 bg-[#F27D26]/10 rounded-full flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-500">
+                  <Upload className="w-10 h-10 text-[#F27D26]" />
+                </div>
+                <h3 className="text-2xl font-black uppercase tracking-tighter mb-2">Drop your sound</h3>
+                <p className="text-sm font-medium opacity-40 uppercase tracking-widest text-center px-12 group-hover:opacity-100">MP3, WAV OR M4A (MAX 50MB)</p>
+                <div className="mt-8 px-6 py-2 bg-white/5 rounded-full text-[10px] font-black opacity-40 group-hover:opacity-100 transition-opacity">OR CLICK TO BROWSE</div>
                 <input type="file" className="hidden" accept="audio/*" onChange={handleAudioUpload} />
               </label>
             )}
+          </div>
+
+          <div className="mt-8 flex gap-4 w-full max-w-2xl">
+            {(['9:16', '1:1', '16:9'] as const).map(ratio => (
+              <button 
+                key={ratio}
+                onClick={() => setSettings(prev => ({ ...prev, aspectRatio: ratio }))}
+                className={cn(
+                  "flex-1 p-4 rounded-3xl border-2 transition-all flex flex-col items-center gap-3 group relative overflow-hidden",
+                  settings.aspectRatio === ratio 
+                    ? "bg-[#F27D26] border-[#F27D26] text-black shadow-2xl scale-105 z-10" 
+                    : "bg-white/5 border-white/5 text-white/40 hover:border-white/10"
+                )}
+              >
+                <div className={cn(
+                  "border-2 rounded transition-all group-hover:scale-110",
+                  ratio === '9:16' ? "w-4 h-7" : ratio === '16:9' ? "w-7 h-4" : "w-5 h-5",
+                  settings.aspectRatio === ratio ? "border-black" : "border-white/20"
+                )} />
+                <span className="text-[10px] font-black uppercase">{ratio === '9:16' ? 'Reels' : ratio === '16:9' ? 'YouTube' : 'Feed'}</span>
+              </button>
+            ))}
           </div>
 
           {/* Floating Player - Compact for sticky layout */}
@@ -406,22 +443,30 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               <div 
-                className="h-1 lg:h-1.5 w-full bg-white/10 rounded-full overflow-hidden cursor-pointer group"
+                className="h-2 w-full bg-white/10 rounded-full overflow-hidden cursor-pointer group relative"
                 onClick={(e) => {
+                  if (isRecording) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const x = e.clientX - rect.left;
                   audioRef.current && (audioRef.current.currentTime = (x / rect.width) * audioRef.current.duration);
                 }}
               >
-                <div className="h-full bg-white transition-all duration-100 relative" style={{ width: `${progress}%` }}>
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full opacity-0 group-hover:opacity-100 shadow-[0_0_10px_white]" />
+                <div className={cn("h-full transition-all duration-100 relative", isRecording ? "bg-[#F27D26]" : "bg-white")} style={{ width: `${progress}%` }}>
+                  {!isRecording && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full opacity-0 group-hover:opacity-100 shadow-[0_0_10px_white]" />}
                 </div>
               </div>
-              <div className="flex justify-between text-[8px] lg:text-[10px] font-bold font-mono opacity-30">
-                <span>{audioRef.current ? formatTime(audioRef.current.currentTime) : '00:00'}</span>
-                <span>{audioRef.current ? formatTime(audioRef.current.duration) : '00:00'}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-[8px] lg:text-[10px] font-bold font-mono opacity-30">
+                  {audioRef.current ? formatTime(audioRef.current.currentTime) : '00:00'} / {audioRef.current ? formatTime(audioRef.current.duration) : '00:00'}
+                </span>
+                {isRecording && (
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-ping" />
+                        <span className="text-[9px] font-black text-[#F27D26] uppercase animate-pulse">{renderStep}</span>
+                    </div>
+                )}
               </div>
             </div>
           </div>
@@ -452,11 +497,11 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-2">
                       {[
                         { id: 'GLITCH', name: 'Glitch Core', icon: Zap },
-                        { id: 'NEBULA', name: 'Celestial', icon: PlusCircle },
-                        { id: 'TUNNEL', name: 'Hyper Void', icon: Layers },
+                        { id: 'SIMULATION', name: 'The Eye', icon: Layers },
+                        { id: 'TUNNEL', name: 'Hyper Void', icon: Music },
                         { id: 'PARTICLES', name: 'Molecular', icon: Layout },
                         { id: 'RADIAL', name: 'Circular', icon: RefreshCw },
-                        { id: 'SPECTRUM', name: 'Vibrations', icon: Music },
+                        { id: 'SPECTRUM', name: 'Vibrations', icon: Play },
                       ].map(m => (
                         <button 
                           key={m.id}
@@ -473,48 +518,6 @@ export default function App() {
                           {settings.mode === m.id && (
                             <motion.div layoutId="mode-active" className="absolute bottom-0 left-0 right-0 h-1 bg-[#F27D26]" />
                           )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Color Core</label>
-                    <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar">
-                       {palettes.map(p => (
-                         <button 
-                            key={p.id}
-                            onClick={() => setSettings(prev => ({ ...prev, palette: p.id, primaryColor: p.primary, secondaryColor: p.secondary }))}
-                            className={cn(
-                              "w-12 h-12 flex-shrink-0 rounded-2xl border-2 transition-all relative overflow-hidden",
-                              settings.palette === p.id ? "border-white scale-110 rotate-12 z-10" : "border-white/5 opacity-40 hover:opacity-100"
-                            )}
-                         >
-                           <div className="absolute inset-0 bg-gradient-to-br" style={{ backgroundImage: `linear-gradient(135deg, ${p.primary}, ${p.secondary})` }} />
-                         </button>
-                       ))}
-                       <button 
-                         className="w-12 h-12 flex-shrink-0 rounded-2xl border-2 border-white/10 flex items-center justify-center bg-white/5 hover:bg-white/10"
-                         onClick={() => setSettings(prev => ({ ...prev, palette: 'CUSTOM' }))}
-                       >
-                         <Sliders size={14} className="text-white/40" />
-                       </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Aspect Ratio</label>
-                    <div className="flex gap-2">
-                      {(['1:1', '9:16', '16:9'] as const).map(ratio => (
-                        <button 
-                          key={ratio}
-                          onClick={() => setSettings(prev => ({ ...prev, aspectRatio: ratio }))}
-                          className={cn(
-                            "flex-1 py-3 rounded-xl text-[10px] font-black transition-all uppercase",
-                            settings.aspectRatio === ratio ? "bg-[#F27D26] text-black shadow-lg" : "bg-white/5 text-white/40 border border-white/5"
-                          )}
-                        >
-                          {ratio}
                         </button>
                       ))}
                     </div>
@@ -540,6 +543,30 @@ export default function App() {
                       animate={{ opacity: 1 }}
                       className="space-y-8"
                     >
+                      <div className="space-y-4">
+                        <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Color Core</label>
+                        <div className="flex gap-3 overflow-x-auto pb-4 no-scrollbar">
+                           {palettes.map(p => (
+                             <button 
+                                key={p.id}
+                                onClick={() => setSettings(prev => ({ ...prev, palette: p.id, primaryColor: p.primary, secondaryColor: p.secondary }))}
+                                className={cn(
+                                  "w-12 h-12 flex-shrink-0 rounded-2xl border-2 transition-all relative overflow-hidden",
+                                  settings.palette === p.id ? "border-white scale-110 rotate-12 z-10" : "border-white/5 opacity-40 hover:opacity-100"
+                                )}
+                             >
+                               <div className="absolute inset-0 bg-gradient-to-br" style={{ backgroundImage: `linear-gradient(135deg, ${p.primary}, ${p.secondary})` }} />
+                             </button>
+                           ))}
+                           <button 
+                             className="w-12 h-12 flex-shrink-0 rounded-2xl border-2 border-white/10 flex items-center justify-center bg-white/5 hover:bg-white/10"
+                             onClick={() => setSettings(prev => ({ ...prev, palette: 'CUSTOM' }))}
+                           >
+                             <Sliders size={14} className="text-white/40" />
+                           </button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 gap-6 bg-white/[0.02] p-6 rounded-3xl border border-white/5">
                         <label className="text-[10px] font-black text-[#F27D26] uppercase tracking-[0.2em] mb-2 block">Engine Tuning</label>
                         {[
@@ -566,20 +593,21 @@ export default function App() {
                       </div>
 
       <div className="space-y-4">
-        <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Quick Presets</label>
-        <div className="grid grid-cols-2 gap-2">
+        <label className="text-[10px] font-bold text-[#F27D26] uppercase tracking-[0.2em]">Vibe Presets</label>
+        <div className="grid grid-cols-2 gap-3">
           {[
-            { id: 'neon', name: 'Neon Glitch', settings: { intensity: 1.5, rgbSplit: 0.8, bloom: 0.6, mode: 'GLITCH' as VisualizerMode } },
-            { id: 'zen', name: 'Zen Radial', settings: { intensity: 0.5, bloom: 0.2, mode: 'RADIAL' as VisualizerMode, rgbSplit: 0 } },
-            { id: 'vhs', name: 'VHS Tape', settings: { scanLines: 0.8, mode: 'GLITCH' as VisualizerMode, rgbSplit: 0.2 } },
-            { id: 'cyber', name: 'Cyber Tunnel', settings: { mode: 'TUNNEL' as VisualizerMode, intensity: 1.2, bloom: 0.8, rgbSplit: 0.5 } }
+            { id: 'trap', name: '🔥 Dark Trap', settings: { mode: 'GLITCH', palette: 'BRUTALIST', intensity: 1.6, rgbSplit: 0.8, pixelSorting: 0.5, chromaticAberration: 0.4, primaryColor: '#FFD700', secondaryColor: '#1A1A1A' } },
+            { id: 'simulation', name: '👁️ Simulation', settings: { mode: 'SIMULATION', palette: 'MONO', intensity: 1.0, bloom: 0.8, scanLines: 0.6, primaryColor: '#ffffff', secondaryColor: '#000000' } },
+            { id: 'lofi', name: '🌌 Chill Lofi', settings: { mode: 'RADIAL', palette: 'SUNSET', intensity: 0.6, bloom: 0.4, vignette: 0.8, scanLines: 0.1, primaryColor: '#ff4e50', secondaryColor: '#f9d423' } },
+            { id: 'neon', name: '⚡ Cyberpunk', settings: { mode: 'TUNNEL', palette: 'NEON', intensity: 1.3, bloom: 0.9, rgbSplit: 0.6, pixelSorting: 0.2, primaryColor: '#00ffcc', secondaryColor: '#ff00ff' } }
           ].map(t => (
             <button 
               key={t.id}
               onClick={() => setSettings(prev => ({ ...prev, ...t.settings }))}
-              className="px-4 py-3 bg-white/5 border border-white/5 rounded-2xl text-[9px] font-bold uppercase hover:bg-[#F27D26] hover:text-black transition-all"
+              className="px-4 py-5 bg-white/[0.03] border border-white/5 rounded-[24px] text-[10px] font-black uppercase hover:bg-white text-white hover:text-black transition-all hover:scale-[1.02] shadow-sm flex flex-col items-center gap-2"
             >
-              {t.name}
+              <span className="text-lg">{t.name.split(' ')[0]}</span>
+              <span>{t.name.split(' ').slice(1).join(' ')}</span>
             </button>
           ))}
         </div>

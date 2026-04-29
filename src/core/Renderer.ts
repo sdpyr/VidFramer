@@ -51,34 +51,91 @@ export class GlitchRenderer {
       this.visualizer.render(context);
     }
 
-    // 3. Draw Post-Process Effects (Scanlines, Vignette)
+    // 3. Draw Metadata (Title/Artist)
+    this.renderMetadata(context);
+
+    // 4. Draw Synced Lyrics (Karaoke Effect)
+    if (settings.showLyrics && settings.syncedLyrics.length > 0) {
+      this.renderLyrics(context);
+    }
+
+    // 5. Draw Post-Process Effects (Scanlines, Vignette)
     this.applyPostEffects(context);
   }
 
-  private applyPostEffects(context: RenderContext) {
-    const { ctx, width, height, settings, audio } = context;
+  private renderMetadata({ ctx, width, height, settings, metadata }: RenderContext) {
+    if (!settings.showTitle && !settings.showArtist) return;
 
-    // Vignette
-    if (settings.vignette > 0) {
-      const gradient = ctx.createRadialGradient(width / 2, height / 2, width * 0.2, width / 2, height / 2, width * 0.8);
-      gradient.addColorStop(0, 'rgba(0,0,0,0)');
-      gradient.addColorStop(1, `rgba(0,0,0,${settings.vignette * 0.8})`);
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, width, height);
+    const margin = 40;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    if (settings.showTitle) {
+        ctx.font = `900 24px "${settings.titleFont}"`;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText((settings.customTitle || metadata?.title || '').toUpperCase(), margin, margin);
     }
 
-    // Scanlines
-    if (settings.scanLines > 0) {
-      ctx.save();
-      ctx.globalAlpha = settings.scanLines * 0.3;
-      ctx.fillStyle = '#000';
-      for (let i = 0; i < height; i += 4) {
-        ctx.fillRect(0, i, width, 1);
-      }
-      ctx.restore();
+    if (settings.showArtist) {
+        ctx.font = `600 14px "${settings.artistFont}"`;
+        ctx.fillStyle = settings.primaryColor;
+        ctx.fillText((settings.customArtist || metadata?.artist || '').toUpperCase(), margin, margin + 30);
     }
+  }
+
+  private renderLyrics({ ctx, width, height, settings, audio }: RenderContext) {
+    const activeLines = settings.syncedLyrics.filter(l => audio.time >= l.startTime - 1 && audio.time <= l.endTime + 2);
+    if (activeLines.length === 0) return;
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     
-    // RGB Split / Chromatic Aberration (handled within visualizers for efficiency usually, 
-    // but can be a global shift if needed)
+    // We only show the "most" current line usually for a focus effect
+    const currentLine = activeLines.find(l => audio.time >= l.startTime && audio.time <= l.endTime) || activeLines[0];
+    
+    const centerY = height * 0.85; // Position at bottom
+    
+    // Draw Current Line with Word Highlight
+    if (currentLine) {
+        const words = currentLine.words;
+        const totalText = currentLine.text;
+        ctx.font = `700 28px "${settings.lyricsFont}"`;
+        
+        // Calculate total width to center properly
+        const totalWidth = ctx.measureText(totalText).width;
+        let currentX = (width / 2) - (totalWidth / 2);
+
+        words.forEach(word => {
+            const isActive = audio.time >= word.startTime && audio.time <= word.endTime;
+            const isPast = audio.time > word.endTime;
+            
+            ctx.save();
+            if (isActive) {
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = settings.primaryColor;
+                // Scale up active word slightly
+                ctx.translate(currentX + ctx.measureText(word.word).width/2, centerY);
+                ctx.scale(1.1, 1.1);
+                ctx.translate(-(currentX + ctx.measureText(word.word).width/2), -centerY);
+            } else if (isPast) {
+                ctx.fillStyle = `rgba(255,255,255,${settings.lyricsPastOpacity})`;
+                if (settings.lyricsBlur > 0) ctx.filter = `blur(${settings.lyricsBlur * 10}px)`;
+            } else {
+                ctx.fillStyle = `rgba(255,255,255,${settings.lyricsFutureOpacity})`;
+            }
+
+            ctx.fillText(word.word, currentX + ctx.measureText(word.word).width/2, centerY);
+            ctx.restore();
+            
+            currentX += ctx.measureText(word.word + ' ').width;
+        });
+    }
+  }
+
+  private applyPostEffects(context: RenderContext) {
+    // Post-processing is now partially offloaded to CSS overlays in the UI layer
+    // to preserve CPU cycles for high-res WebM export and rendering.
+    // Use this space only for per-frame dynamic filters if needed.
   }
 }

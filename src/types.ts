@@ -12,8 +12,8 @@ export interface MusicMetadata {
   coverUrl?: string;
 }
 
-export type VisualizerMode = 'GLITCH' | 'WAVEFORM' | 'SPECTRUM' | 'RADIAL' | 'PARTICLES' | 'TUNNEL' | 'NEBULA';
-export type ColorPalette = 'DEFAULT' | 'NEON' | 'SUNSET' | 'CYBER' | 'MONO' | 'CUSTOM';
+export type VisualizerMode = 'GLITCH' | 'WAVEFORM' | 'SPECTRUM' | 'RADIAL' | 'PARTICLES' | 'TUNNEL' | 'NEBULA' | 'SIMULATION';
+export type ColorPalette = 'DEFAULT' | 'NEON' | 'SUNSET' | 'CYBER' | 'MONO' | 'CUSTOM' | 'BRUTALIST';
 export type TypographyStyle = 'CLASSIC' | 'BOUNCE' | 'GLITCH' | 'STAGGER';
 export type AspectRatio = '9:16' | '1:1' | '16:9';
 

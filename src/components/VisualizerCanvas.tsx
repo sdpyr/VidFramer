@@ -10,6 +10,7 @@ import { AudioProcessor } from '../core/AudioProcessor';
 import { GlitchVisualizer } from '../visualizers/GlitchVisualizer';
 import { SpectrumVisualizer } from '../visualizers/SpectrumVisualizer';
 import { RadialVisualizer } from '../visualizers/RadialVisualizer';
+import { SimulationVisualizer } from '../visualizers/SimulationVisualizer';
 import { cn } from '../lib/utils';
 
 interface VisualizerCanvasProps {
@@ -94,6 +95,7 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
       visualizers.set('GLITCH', new GlitchVisualizer());
       visualizers.set('SPECTRUM', new SpectrumVisualizer());
       visualizers.set('RADIAL', new RadialVisualizer());
+      visualizers.set('SIMULATION', new SimulationVisualizer());
 
       engineRef.current = { renderer, processor, visualizers };
       renderer.setCoverImage(coverUrl || null);
@@ -177,6 +179,30 @@ export const VisualizerCanvas = forwardRef<VisualizerHandle, VisualizerCanvasPro
         onTouchMove={handleInteraction}
         onTouchEnd={() => setIsDragging(false)}
       />
+      
+      {/* High-Performance CSS Overlays */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
+        {settings.vignette > 0 && (
+          <div 
+            className="absolute inset-0 transition-opacity duration-300" 
+            style={{ 
+              background: `radial-gradient(circle, transparent 20%, rgba(0,0,0,${settings.vignette * 0.9}))`,
+              opacity: 0.8 + (isPlaying ? 0.2 : 0)
+            }} 
+          />
+        )}
+        {settings.scanLines > 0 && (
+          <div 
+            className="absolute inset-0" 
+            style={{ 
+              backgroundImage: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))',
+              backgroundSize: '100% 4px, 3px 100%',
+              opacity: settings.scanLines * 0.5,
+            }} 
+          />
+        )}
+      </div>
+
       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/20 pointer-events-none" />
     </div>
   );

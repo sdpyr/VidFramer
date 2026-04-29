@@ -23,40 +23,41 @@ export class AudioProcessor {
   public process(currentTime: number, delta: number): AudioEvents {
     this.analyser.getByteFrequencyData(this.dataArray);
     
-    // Band Analysis (assuming 1024 FFT -> 512 bins)
-    // Bass: 0-20 (0-172Hz)
-    // Mids: 20-100 (172Hz-860Hz)
-    // Highs: 100-512 (860Hz+)
-    
+    // Band Analysis (1024 FFT -> 512 bins)
+    // Sub-Bass/Kick: 0-6 bins (~0-250Hz) - Narrowed to prevent vocal bleed
     let bassSum = 0;
-    for (let i = 0; i < 20; i++) bassSum += this.dataArray[i];
-    const bassEnergy = (bassSum / 20) / 255;
+    const bassBins = 6;
+    for (let i = 0; i < bassBins; i++) bassSum += this.dataArray[i];
+    const bassEnergy = (bassSum / bassBins) / 255;
 
+    // Mids: 6-60 bins (~250Hz - 2.5kHz)
     let midSum = 0;
-    for (let i = 20; i < 100; i++) midSum += this.dataArray[i];
-    const midEnergy = (midSum / 80) / 255;
+    for (let i = 6; i < 60; i++) midSum += this.dataArray[i];
+    const midEnergy = (midSum / 54) / 255;
 
+    // Highs: 60-512 bins (2.5kHz - 22kHz) - Extended to catch crisp hats
     let highSum = 0;
-    for (let i = 100; i < 256; i++) highSum += this.dataArray[i];
-    const highEnergy = (highSum / 156) / 255;
+    for (let i = 60; i < 512; i++) highSum += this.dataArray[i];
+    const highEnergy = (highSum / 452) / 255;
 
-    const energy = (bassEnergy * 0.5 + midEnergy * 0.3 + highEnergy * 0.2);
+    const energy = (bassEnergy * 0.6 + midEnergy * 0.2 + highEnergy * 0.2);
     
-    // Smoothing (Lerp) to prevent jitter
+    // Smoothing (Lerp)
     const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-    const smoothFactor = 0.2;
+    const smoothFactor = 0.15; // Slightly slower for more fluid feel
     
     this.smoothedKick = lerp(this.smoothedKick, bassEnergy, smoothFactor);
     this.smoothedSnare = lerp(this.smoothedSnare, midEnergy, smoothFactor);
     this.smoothedHihat = lerp(this.smoothedHihat, highEnergy, smoothFactor);
     this.smoothedEnergy = lerp(this.smoothedEnergy, energy, smoothFactor);
 
-    // Simple Beat Detection
-    this.energyHistory.push(energy);
+    // Reliable Beat Detection: Focus on Bass energy change
+    this.energyHistory.push(bassEnergy);
     if (this.energyHistory.length > this.historySize) this.energyHistory.shift();
     
-    const avgEnergy = this.energyHistory.reduce((a, b) => a + b, 0) / this.energyHistory.length;
-    const isBeat = energy > avgEnergy * 1.3 && energy > 0.1;
+    const avgBassEnergy = this.energyHistory.reduce((a, b) => a + b, 0) / this.energyHistory.length;
+    // Threshold + sudden jump logic
+    const isBeat = bassEnergy > avgBassEnergy * 1.4 && bassEnergy > 0.15;
 
     // Normalize spectrum for visualizer
     const normalizedSpectrum: number[] = [];

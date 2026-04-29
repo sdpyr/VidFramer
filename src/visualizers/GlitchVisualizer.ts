@@ -79,25 +79,27 @@ export class GlitchVisualizer implements IVisualizer {
     const dx = (width * (settings.coverX / 100)) - (size / 2);
     const dy = (height * (settings.coverY / 100)) - (size / 2);
 
-    // Glitch Shifting
-    const isGlitch = audio.beat || Math.random() > 0.95;
+    // Glitch Shifting: Strictly audio-triggered to prevent "random jitter"
+    const isGlitchTriggered = settings.mode === 'GLITCH' && (audio.beat || audio.energy > 0.85);
     
-    if (isGlitch && settings.mode === 'GLITCH') {
-      const slices = Math.floor(10 + audio.energy * 20);
+    if (isGlitchTriggered) {
+      const slices = Math.floor(15 + audio.kick * 40);
       for (let i = 0; i < slices; i++) {
         const sy = Math.random() * sh;
-        const sh_slice = Math.random() * 50;
-        const offset = (Math.random() - 0.5) * 100 * audio.energy * settings.displacement;
+        const sh_slice = Math.random() * (40 * settings.intensity);
+        const offset = (Math.random() - 0.5) * 150 * audio.energy * settings.displacement;
         
+        ctx.globalAlpha = 0.5 + Math.random() * 0.5;
         ctx.drawImage(
           coverImage, 
           0, sy, sw, sh_slice, 
           dx + offset, dy + (sy / sh) * size, size, (sh_slice / sh) * size
         );
       }
+      ctx.globalAlpha = 1;
     } else {
       // Clean draw with subtle floating
-      const float = Math.sin(Date.now() / 1000) * 10;
+      const float = Math.sin(Date.now() / 1200) * 8;
       ctx.drawImage(coverImage, dx, dy + float, size, size);
     }
   }

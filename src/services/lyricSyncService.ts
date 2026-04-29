@@ -5,68 +5,41 @@ import { SyncedLine } from "../types";
 const apiKey = process.env.GEMINI_API_KEY;
 
 export async function generateSyncedLyrics(audioBase64: string, mimeType: string): Promise<SyncedLine[]> {
-  if (!apiKey) {
-    console.error("GEMINI_API_KEY is missing");
-    return [];
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: [
-      {
-        inlineData: {
-          mimeType: mimeType,
-          data: audioBase64
-        }
-      },
-      {
-        text: `Listen to this audio and perform exact word-by-word lyric transcription. 
+  try {
+    const response = await fetch("/api/sync-lyrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audioData: audioBase64,
+        mimeType: mimeType,
+        prompt: `Listen to this audio and perform exact word-by-word lyric transcription. 
         1. Identify the language correctly.
         2. Provide word-level timestamps for every single word.
-        3. Do NOT summarize or guess; if you are unsure, transcribe exactly what you hear.
+        3. Do NOT summarize or guess.
         4. Return a JSON array of sentences.
         5. Each sentence must have startTime, endTime, text, and a detailed 'words' array.
-        6. Timing must be perfect – if a word starts slightly before or after, reflect it in the decimals.`
-      }
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            startTime: { type: Type.NUMBER },
-            endTime: { type: Type.NUMBER },
-            text: { type: Type.STRING },
-            words: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  word: { type: Type.STRING },
-                  startTime: { type: Type.NUMBER },
-                  endTime: { type: Type.NUMBER }
-                },
-                required: ["word", "startTime", "endTime"]
-              }
-            }
-          },
-          required: ["startTime", "endTime", "text", "words"]
-        }
-      }
-    }
-  });
+        6. Timing must be perfect.`
+      })
+    });
 
-  try {
-    const text = response.text;
+    const result = await response.json();
+    let text = result.response || "";
+    
+    // Robust Parsing: Remove markdown code blocks if present
+    text = text.replace(/```json\n?/, "").replace(/```\n?/, "").trim();
+    
+    // Attempt to find the first [ and last ] to extract JSON array
+    const startIdx = text.indexOf("[");
+    const endIdx = text.lastIndexOf("]");
+    if (startIdx !== -1 && endIdx !== -1) {
+      text = text.substring(startIdx, endIdx + 1);
+    }
+
     if (!text) return [];
     const data = JSON.parse(text);
     return data as SyncedLine[];
   } catch (e) {
-    console.error("Failed to parse synced lyrics:", e);
+    console.error("Failed to generate/parse synced lyrics:", e);
     return [];
   }
 }
