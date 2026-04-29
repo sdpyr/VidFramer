@@ -74,7 +74,38 @@ export interface VisualizerPreset {
   settings: VisualizerSettings;
 }
 
-export interface LyricLine {
-  text: string;
-  time?: number;
+export interface AudioEvents {
+  kick: number;     // 0 to 1, smoothed
+  snare: number;    // 0 to 1, smoothed
+  hihat: number;    // 0 to 1, smoothed
+  energy: number;   // 0 to 1, overall volume
+  spectrum: number[]; // normalized spectrum
+  time: number;     // current track time
+  delta: number;    // frame delta time
+  beat: boolean;    // true if rhythmic hit detected
+  bassEnergy: number;
+  midEnergy: number;
+  highEnergy: number;
+}
+
+export interface RenderContext {
+  ctx: CanvasRenderingContext2D;
+  width: number;
+  height: number;
+  settings: VisualizerSettings;
+  audio: AudioEvents;
+  metadata: MusicMetadata | null;
+  coverImage?: HTMLImageElement | null;
+}
+
+export interface IVisualizer {
+  name: string;
+  update(audio: AudioEvents, settings: VisualizerSettings): void;
+  render(context: RenderContext): void;
+}
+
+export interface VisualizerModeMetadata {
+  id: VisualizerMode;
+  name: string;
+  description: string;
 }

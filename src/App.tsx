@@ -377,6 +377,7 @@ export default function App() {
               isPlaying={isPlaying}
               settings={settings}
               onUpdateSettings={(updates) => setSettings(prev => ({ ...prev, ...updates }))}
+              metadata={metadata}
             />
             
             {!audioFile && (
